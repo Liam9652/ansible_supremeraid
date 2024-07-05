@@ -16,30 +16,34 @@
     (not configure_create_by_numa and configure_create_by_socket | int == 0 and not pd_list_all)
 
 - name: Create drive groups by NUMA
+  become: true
   ansible.builtin.command: >
-    sudo graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
+    graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_numa | dict2items }}"
   when: configure_create_by_numa | bool
   register: create_dg_numa_results
 
 - name: Create drive groups by Socket
+  become: true
   ansible.builtin.command: >
-    sudo graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
+    graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_socket | dict2items }}"
   when: configure_create_by_socket | int > 0
   register: create_dg_socket_results
 
 - name: Create single drive group
+  become: true
   ansible.builtin.command: >
-    sudo graidctl create dg {{ configure_raid_type }} {{ pd_list_all | join(',') }}
+    graidctl create dg {{ configure_raid_type }} {{ pd_list_all | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   when: not configure_create_by_numa and configure_create_by_socket | int == 0
   register: create_dg_single_result
 
 - name: Query new drive groups
-  ansible.builtin.command: sudo graidctl ls dg --format=json
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
   register: new_dg_output
 
 - name: Parse new drive groups and find newly added DgIds
@@ -53,7 +57,8 @@
   when: newly_added_dg_list | length == 0
 
 - name: Wait for drive groups to initialize
-  ansible.builtin.command: sudo graidctl ls dg --format=json
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
   register: dg_status_output
   until: (dg_status_output.stdout | from_json).Result | selectattr('DgId', 'in', newly_added_dg_list) | map(attribute='State') | list | unique == ['OPTIMAL']
   retries: 1000000 # 設置一個非常大的重試次數

@@ -1,6 +1,7 @@
 ---
 - name: Query existing physical drives
-  ansible.builtin.command: sudo graidctl ls pd --format=json
+  become: true
+  ansible.builtin.command: graidctl ls pd --format=json
   register: existing_pd_output
 
 - name: Parse existing physical drives
@@ -8,12 +9,14 @@
     existing_pd_list: "{{ (existing_pd_output.stdout | from_json).Result | map(attribute='PdId') | list }}"
 
 - name: Create physical drives
-  ansible.builtin.command: "sudo graidctl create pd {{ item.DevPath }}"
+  become: true
+  ansible.builtin.command: "graidctl create pd {{ item.DevPath }}"
   loop: "{{ filtered_devices }}"
   register: create_pd_results
 
 - name: Query new physical drives
-  ansible.builtin.command: sudo graidctl ls pd --format=json
+  become: true
+  ansible.builtin.command: graidctl ls pd --format=json
   register: new_pd_output
 
 - name: Parse new physical drives and find newly added PdIds
@@ -53,4 +56,3 @@
       - "PDs by NUMA: {{ pd_list_by_numa | default({}) }}"
       - "PDs by Socket: {{ pd_list_by_socket | default({}) }}"
       - "All new PDs: {{ pd_list_all | default([]) }}"
-

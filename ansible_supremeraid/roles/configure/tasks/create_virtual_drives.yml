@@ -1,6 +1,7 @@
 ---
 - name: Query drive groups
-  ansible.builtin.command: sudo graidctl ls dg --format=json
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
   register: dg_query_output
 
 - name: Parse drive group information
@@ -26,8 +27,9 @@
   when: configure_vd_size | length > 0
 
 - name: Create virtual drives for newly created drive groups
+  become: true
   ansible.builtin.command: >
-    sudo graidctl create vd {{ item.0 }}
+    graidctl create vd {{ item.0 }}
     {% if configure_vd_size | length > 0 %} {{ configure_vd_size }}{% endif %}
   loop: "{{ newly_added_dg_list | product(range(configure_vd_counts | int)) | list }}"
   loop_control:
@@ -36,14 +38,16 @@
   when: configure_vd_size | length > 0
 
 - name: Create full-size virtual drives for newly created drive groups
+  become: true
   ansible.builtin.command: >
-    sudo graidctl create vd {{ item }}
+    graidctl create vd {{ item }}
   loop: "{{ newly_added_dg_list }}"
   register: create_full_vd_results
   when: configure_vd_size | length == 0
 
 - name: Query virtual drives
-  ansible.builtin.command: sudo graidctl ls vd --format=json
+  become: true
+  ansible.builtin.command: graidctl ls vd --format=json
   register: graidctl_ls_vd_output
 
 - name: Parse JSON output for virtual drives

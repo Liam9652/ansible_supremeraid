@@ -48,7 +48,8 @@
     is_license_key_valid: "{{ license_key is defined and license_key is string and license_key | length > 0 }}"
 
 - name: Apply license key
-  command: "sudo graidctl apply lic {{ license_key }}"
+  become: true
+  command: "graidctl apply lic {{ license_key }}"
   when:
     - is_license_key_valid
     - not all_controllers_applied
