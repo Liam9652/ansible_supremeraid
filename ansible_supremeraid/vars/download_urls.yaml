@@ -1,0 +1,48 @@
+# vars/download_urls.yaml
+
+# Please update the URLs below with the latest versions from the official website.
+# SupremeRAID download portal "https://docs.graidtech.com/"
+# Ensure that the downloaded files match the required versions for your installation.
+
+## This section is for Linux
+# Download the latest pre-installer from the GraidTech official website.
+pre_installer_url: "https://download.graidtech.com/driver/pre-install/graid-sr-pre-installer-1.5.0-108-x86_64.run"
+
+# Update the installer URLs based on your GPU model.
+# Example URLs are provided below. Replace with the correct URLs from the official website.
+installer_urls:
+  #SR-1000
+  - "https://download.graidtech.com/driver/sr/linux/1.5.0/release/graid-sr-installer-1.5.0-000-706-134.run"
+  #SR-1001
+  - "https://download.graidtech.com/driver/sr/linux/1.5.0/release/graid-sr-installer-1.5.0-001-706-134.run"
+  #SR-1010
+  - "https://download.graidtech.com/driver/sr/linux/1.5.0/release/graid-sr-installer-1.5.0-010-706-134.run"
+  #SR-1011
+  - "https://download.graidtech.com/driver/sr/linux/1.5.0/release/graid-sr-installer-1.5.0-011-706-134.run"
+
+## This is for the remote server doesn't have internet accesss
+
+# Update the installer URLs based on the target distro.
+# URL: https://pkgs.org/search/?q=dkms
+# Example URLs are provided below. Replace with the correct URLs from the official website.
+
+dkms_package_url: "http://example.com/path/to/dkms-3.0.13-1.el8.noarch.rpm"
+
+# Update the installer URLs based on the target distro.
+# Example URLs are provided below. Replace with the correct URLs from the official website.
+
+iso_file_url: "http://example.com/path/to/Rocky-8.8-x86_64-dvd1.iso"
+
+## This section is for Windows
+
+installation_script_url: https://download.graidtech.com/misc/tools/silent_install/windows/silent_install.ps1
+
+nv_url: "https://us.download.nvidia.com/Windows/Quadro_Certified/512.15/512.15-quadro-rtx-desktop-notebook-win10-win11-64bit-international-dch-whql.exe"
+
+installer_win_urls:
+  #SR-1000
+  - "http://172.17.2.29:8080/view/Windows/job/graid-1.2.3-windows-WHQL-repack/lastSuccessfulBuild/artifact/publish_output/graid-sr-1.2.3-svc223-drv215.000.x64-WHQL.exe"
+  #SR-1001
+  - "http://172.17.2.29:8080/view/Windows/job/graid-1.2.3-windows-WHQL-repack/lastSuccessfulBuild/artifact/publish_output/graid-sr-1.2.3-svc223-drv215.001.x64-WHQL.exe"
+  #SR-1010
+  - "http://172.17.2.29:8080/view/Windows/job/graid-1.2.3-windows-WHQL-repack/lastSuccessfulBuild/artifact/publish_output/graid-sr-1.2.3-svc223-drv215.010.x64-WHQL.exe"

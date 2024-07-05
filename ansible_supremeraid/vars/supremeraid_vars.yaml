@@ -1,0 +1,3 @@
+# vars/supremeraid_vars.yaml
+install_mode: "offline"
+remote_os: "linux"

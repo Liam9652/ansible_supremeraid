@@ -1,0 +1,55 @@
+---
+- name: Set default values for variables
+  ansible.builtin.set_fact:
+    configure_raid_type: "{{ configure_raid_type | default('raid5') }}"
+    configure_device_model_name: "{{ configure_device_model_name | default('QEMU NVMe Ctrl') }}"
+    configure_device_count: "{{ configure_device_count | default(5) }}"
+    configure_vd_size: "{{ configure_vd_size | default('') }}"
+    configure_create_by_numa: "{{ configure_create_by_numa | default(false) }}"
+    configure_create_by_socket: "{{ configure_create_by_socket | default('') }}"
+    configure_dg_foreground_init: "{{ configure_dg_foreground_init | default(false) }}"
+    configure_vd_counts: "{{ configure_vd_counts | default(1) | int }}"
+
+- name: Validate configure_vd_counts
+  ansible.builtin.assert:
+    that:
+      - configure_vd_counts | int > 0
+    fail_msg: "configure_vd_counts must be a positive integer"
+
+- name: Query nvme devices
+  ansible.builtin.command: "sudo graidctl ls nd --format=json"
+  register: graidctl_ls_nd_output
+
+- name: Parse JSON output for devices
+  ansible.builtin.set_fact:
+    parsed_output: "{{ graidctl_ls_nd_output.stdout | from_json }}"
+
+- name: Filter devices by Model
+  ansible.builtin.set_fact:
+    filtered_devices: "{{ parsed_output.Result | selectattr('Model', 'eq', configure_device_model_name) | list }}"
+
+- name: Check if there are enough devices
+  ansible.builtin.assert:
+    that:
+      - filtered_devices | length >= {{ configure_device_count | int }}
+    fail_msg: "Not enough devices found. Required: {{ configure_device_count | int }}, Found: {{ filtered_devices | length }}"
+
+- name: Limit to specified device count
+  ansible.builtin.set_fact:
+    filtered_devices: "{{ filtered_devices[:configure_device_count | int ] }}"
+
+- name: Calculate total capacity of filtered devices
+  ansible.builtin.set_fact:
+    total_capacity: "{{ filtered_devices | sum(attribute='Capacity') }}"
+
+- name: Debug output of prepared devices
+  ansible.builtin.debug:
+    msg:
+      - "Prepared devices: {{ filtered_devices | map(attribute='DevPath') | list }}"
+      - "Total capacity: {{ total_capacity }}"
+      - "RAID type: {{ configure_raid_type }}"
+      - "Create by NUMA: {{ configure_create_by_numa }}"
+      - "Create by Socket: {{ configure_create_by_socket }}"
+      - "Foreground init: {{ configure_dg_foreground_init }}"
+      - "VD size: {{ configure_vd_size if configure_vd_size | length > 0 else 'Full capacity' }}"
+      - "VD count: {{ configure_vd_counts }}"

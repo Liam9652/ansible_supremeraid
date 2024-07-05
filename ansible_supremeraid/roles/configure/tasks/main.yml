@@ -1,0 +1,9 @@
+---
+# tasks file for configure
+- name: Activate service
+  import_tasks: activate_service.yml
+  tags: [activate]
+
+- name: Configure RAID
+  import_tasks: raid_function.yml
+  tags: [raid]

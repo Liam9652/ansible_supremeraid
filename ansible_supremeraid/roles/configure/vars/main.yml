@@ -1,0 +1,18 @@
+---
+# vars file for configure
+configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
+configure_device_model_name: 'QEMU NVMe Ctrl'
+configure_device_count: 1
+
+#dg related varibles
+configure_raid_type: 'raid0'
+configure_dg_foreground_init: false
+
+#vd related varibles
+configure_vd_size: '200MB'
+configure_vd_counts: 2
+
+# NUMA and Socket related variables
+configure_create_by_numa: false
+configure_create_by_socket: ''
+

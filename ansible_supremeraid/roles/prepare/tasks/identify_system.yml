@@ -1,0 +1,36 @@
+---
+# tasks file for idenfy_system
+- name: Display OS Information
+  debug:
+    msg: "Identifying OS: {{ ansible_distribution }}, Family: {{ ansible_os_family }}"
+
+- name: Display Distribution Facts
+  debug:
+    msg: |
+      Architecture: {{ dist.ansible_facts.ansible_architecture }}
+      Processor Count: {{ dist.ansible_facts.ansible_processor_count }}
+      Processor Cores: {{ dist.ansible_facts.ansible_processor_cores }}
+      OS Distribution: {{ dist.ansible_facts.ansible_distribution }}
+      OS Family: {{ dist.ansible_facts.ansible_os_family }}
+
+- name: Get NUMA node information
+  ansible.builtin.command: lscpu -p=NODE
+  register: numa_info
+
+- name: Set NUMA nodes fact
+  ansible.builtin.set_fact:
+    numa_nodes: "{{ numa_info.stdout_lines | select('match', '^[0-9]+$') | unique | list }}"
+
+- name: Get CPU socket information
+  ansible.builtin.command: lscpu -p=SOCKET
+  register: socket_info
+
+- name: Set CPU sockets fact
+  ansible.builtin.set_fact:
+    cpu_sockets: "{{ socket_info.stdout_lines | select('match', '^[0-9]+$') | unique | list }}"
+
+- name: Display NUMA and CPU Socket Information
+  ansible.builtin.debug:
+    msg: |
+      NUMA Nodes: {{ numa_nodes }}
+      CPU Sockets: {{ cpu_sockets }}

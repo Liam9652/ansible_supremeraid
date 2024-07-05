@@ -1,0 +1,69 @@
+---
+# tasks file for activate_service
+- name: Include query_serial role
+  include_tasks: ../prepare/tasks/query_serial.yml
+
+- name: Check current license state
+  ansible.builtin.command: graidctl desc lic --format json
+  register: current_license_state
+  changed_when: false
+
+- name: Parse current license state
+  ansible.builtin.set_fact:
+    parsed_license_state: "{{ current_license_state.stdout | from_json }}"
+
+- name: Display current license state
+  ansible.builtin.debug:
+    var: parsed_license_state
+
+- name: Check if all controllers have applied licenses
+  ansible.builtin.set_fact:
+    all_controllers_applied: >-
+      {{ parsed_license_state.Result.Controller.values() | map(attribute='LicenseState') | list | unique == ['APPLIED'] }}
+
+- name: Display license application status
+  ansible.builtin.debug:
+    msg: "All controllers have applied licenses: {{ all_controllers_applied }}"
+
+- name: debug serial number from target server
+  ansible.builtin.debug:
+    var: serial_output
+
+- name: debug all_controllers_applied value
+  ansible.builtin.debug:
+    var: all_controllers_applied
+
+- name: Get license key using serial number
+  ansible.builtin.set_fact:
+    license_key: "{{ serial_output.stdout_lines[0].split(', ')[2] | get_license_key(configure_license_mapping_csv) }}"
+  when: not all_controllers_applied
+
+- name: Display license key
+  ansible.builtin.debug:
+    var: license_key
+  when: not all_controllers_applied
+
+- name: Check if license key is valid
+  ansible.builtin.set_fact:
+    is_license_key_valid: "{{ license_key is defined and license_key is string and license_key | length > 0 }}"
+
+- name: Apply license key
+  command: "sudo graidctl apply lic {{ license_key }}"
+  when:
+    - is_license_key_valid
+    - not all_controllers_applied
+  register: license_application_result
+
+- name: Display license application result
+  debug:
+    var: license_application_result
+  when:
+    - is_license_key_valid
+    - not all_controllers_applied
+
+- name: Fail if license key is invalid
+  fail:
+    msg: "Failed to obtain a valid license key"
+  when:
+    - not is_license_key_valid
+    - not all_controllers_applied

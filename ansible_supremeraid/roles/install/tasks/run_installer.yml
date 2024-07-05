@@ -1,0 +1,76 @@
+---
+# tasks file for run_installer
+
+- name: Include query_serial role
+  include_tasks: ../prepare/tasks/query_serial.yml
+
+- name: GPU model shown
+  ansible.builtin.debug:
+    msg: "GPU: {{ query_gpu_name + ' ('+ installer_suffix + ')'}}"
+
+- name: Set installer filename
+  ansible.builtin.set_fact:
+    installer_filename: "graid-sr-installer-*-{{ installer_suffix }}-*.run"
+
+- name: Debug installer filename
+  ansible.builtin.debug:
+    msg: "Installer filename: {{ installer_filename }}"
+
+- name: Find the correct installer file in /graid_package
+  ansible.builtin.find:
+    paths: "~/graid_package"
+    patterns: "{{ installer_filename }}"
+  register: found_files
+
+- name: Debug found_files filename
+  ansible.builtin.debug:
+    msg: "Installer filename: {{ found_files }}"
+
+- name: Fail if installer file not found
+  ansible.builtin.fail:
+    msg: "Installer file not found: {{ installer_filename }}"
+  when: found_files.matched == 0
+
+- name: Set installer path
+  ansible.builtin.set_fact:
+    installer_path: "{{ found_files.files[0].path }}"
+
+- name: Run the installer
+  ansible.builtin.command: "bash {{ installer_path }} --accept-license"
+  async: 1800
+  poll: 0
+  register: install_result
+
+- name: Monitor installer log file
+  ansible.builtin.shell: |
+    tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
+  register: log_content
+  until: log_content.rc == 0
+  retries: 180
+  delay: 10
+  changed_when: false
+  failed_when: false
+  ignore_unreachable: true
+
+- name: Clear host errors
+  ansible.builtin.meta: clear_host_errors
+
+- name: Wait for the server to finish rebooting
+  ansible.builtin.wait_for_connection:
+    delay: 30
+    timeout: 300
+
+- name: Check network connectivity after pre-installer
+  ansible.builtin.ping:
+  register: ping_result_after_preinstaller
+  ignore_errors: true
+
+- name: Wait for SSH to come back
+  ansible.builtin.wait_for:
+    host: "{{ inventory_hostname }}"
+    port: 22
+    delay: 30
+    timeout: 1200
+    state: started
+  when: ping_result_after_preinstaller is failed
+  ignore_unreachable: true

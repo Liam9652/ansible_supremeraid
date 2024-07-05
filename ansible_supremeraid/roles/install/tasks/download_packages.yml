@@ -1,0 +1,49 @@
+---
+# roles/download_packages/tasks/main.yaml
+
+- name: Check if the graid_package directory exists
+  ansible.builtin.stat:
+    path: /~/graid_package/
+  register: dir_stat
+
+- name: Create graid_package directory if it does not exist
+  ansible.builtin.file:
+    path: ~/graid_package/
+    state: directory
+  when: not dir_stat.stat.exists
+
+- name: Check if pre-installer file exists on target
+  ansible.builtin.stat:
+    path: "~/graid_package/{{ pre_installer_url | basename }}"
+  register: pre_installer_file
+
+- name: Display install mode
+  ansible.builtin.debug:
+    msg: "Install mode is {{ install_mode }}"
+
+- name: Check if installer files exist on target
+  ansible.builtin.stat:
+    path: "~/graid_package/{{ item | basename }}"
+  with_items: "{{ installer_urls }}"
+  register: installer_files
+
+- name: Download pre-installer to remote host directly
+  ansible.builtin.get_url:
+    url: "{{ pre_installer_url }}"
+    dest: "~/graid_package/{{ pre_installer_url | basename }}"
+    mode: "0755"
+  when:
+    - install_mode == "online"
+    - pre_installer_file.stat.exists is not defined or not pre_installer_file.stat.exists
+
+- name: Download installers to remote host directly
+  ansible.builtin.get_url:
+    url: "{{ item }}"
+    dest: "~/graid_package/{{ item | basename }}"
+    mode: "0755"
+  when:
+    - install_mode == "online"
+    - installer_files.results[loop.index0].stat.exists is not defined or not installer_files.results[loop.index0].stat.exists
+  loop: "{{ installer_urls }}"
+  loop_control:
+    label: "{{ item }}"
