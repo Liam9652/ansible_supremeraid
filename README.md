@@ -12,7 +12,36 @@ This Ansible playbook automates the installation and configuration of SupremeRAI
 - Necessary permissions to install software and configure RAID
 - Internet connectivity on target systems (offline setup is not yet supported)
 
-...
+
+## Setup
+
+1. Clone this repository:
+   ```
+   git clone https://github.com/Liam9652/ansible_supremeraid.git
+   cd supremeraid-ansible
+   ```
+
+2. Update the inventory file (`/etc/ansible/hosts` or create a custom one) with your target systems:
+   ```
+   [supremraid_servers]
+   server1 ansible_host=192.168.1.101
+   server2 ansible_host=192.168.1.102
+   ```
+
+3. Configure the required files:
+
+   a. Edit `vars/download_urls.yaml`:
+      - Add the necessary download links for SupremeRAID packages.
+
+   b. Modify RAID configuration in `/roles/configure/vars/main.yml`:
+      - Adjust RAID parameters according to your requirements.
+
+   c. Prepare the license mapping file:
+      - Place your `license_mapping.csv` file in `/roles/configure/files/`.
+      - Ensure the file contains the correct mapping between serial numbers and license keys.
+
+4. Review and modify other variables in `vars/supremeraid_vars.yaml` as needed.
+
 
 ## Usage
 
