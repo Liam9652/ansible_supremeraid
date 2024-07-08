@@ -18,7 +18,7 @@
 
 - name: Find the correct installer file in /graid_package
   ansible.builtin.find:
-    paths: "~/graid_package"
+    paths: "{{ graid_path }}"
     patterns: "{{ installer_filename }}"
   register: found_files
 

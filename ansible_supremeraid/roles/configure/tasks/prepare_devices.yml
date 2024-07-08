@@ -17,7 +17,8 @@
     fail_msg: "configure_vd_counts must be a positive integer"
 
 - name: Query nvme devices
-  ansible.builtin.command: "sudo graidctl ls nd --format=json"
+  become:  true
+  ansible.builtin.command: "graidctl ls nd --format=json"
   register: graidctl_ls_nd_output
 
 - name: Parse JSON output for devices

@@ -19,10 +19,10 @@ This Ansible playbook automates the installation and configuration of SupremeRAI
 To run the entire playbook:
 
 ```
-ansible-playbook -i /etc/ansible/hosts playbook.yaml
+ansible-playbook playbook.yaml
 ```
 
-**Important:** The current version only supports online installation. Offline setup functionality is planned for a future release.
+**Important:** The current version only supports online installation.
 
 ...
 

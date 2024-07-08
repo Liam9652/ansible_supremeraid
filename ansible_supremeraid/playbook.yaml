@@ -12,25 +12,35 @@
     - name: Gather OS Distribution Facts
       ansible.builtin.setup:
       register: dist
-      tags: always
+      tags: 
+        - always
 
-    - name: Check internet connectivity
-      ansible.builtin.command: ping -c 1 8.8.8.8
-      register: ping_result
-      ignore_errors: true
-      changed_when: false
-      tags: always
+    - name: Test reachability to 8.8.8.8
+      ansible.netcommon.net_ping:
+      dest: 8.8.8.8
+      count: 2
+      tags:
+        - always
+
+    # - name: Check internet connectivity
+    #  ansible.builtin.command: ping -c 1 8.8.8.8
+    #  register: ping_result
+    #  ignore_errors: true
+    # changed_when: false
+    #  tags: always
 
     - name: Set install mode to online if internet is available
       ansible.builtin.set_fact:
         install_mode: "online"
       when: ping_result.rc == 0
-      tags: always
+      tags: 
+        - always
 
     - name: Display install mode
       ansible.builtin.debug:
         msg: "Install mode is {{ install_mode }}"
-      tags: always
+      tags: 
+        - always
 
   tasks:
     - name: Run prepare tasks

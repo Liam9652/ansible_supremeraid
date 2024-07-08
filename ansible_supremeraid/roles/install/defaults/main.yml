@@ -1,2 +1,3 @@
 ---
 # defaults file for install
+graid_path: "/root/graid_package/"
