@@ -1,6 +1,7 @@
 ---
 - name: Query existing drive groups
-  ansible.builtin.command: sudo graidctl ls dg --format=json
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
   register: existing_dg_output
 
 - name: Parse existing drive groups
