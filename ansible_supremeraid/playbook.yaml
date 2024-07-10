@@ -15,6 +15,8 @@
       tags:
         - always
 
+
+
     - name: Test reachability to 8.8.8.8
       ansible.netcommon.net_ping:
         dest: 8.8.8.8
@@ -62,5 +64,5 @@
     - name: Fail if unsupported OS
       fail:
         msg: "Unsupported operating system: {{ ansible_distribution }}"
-      when: ansible_os_family not in ["RedHat", "Debian", "Windows"]
+      when: ansible_os_family not in ["RedHat", "Debian", "SLES", "Windows"]
       tags: unsupported

@@ -25,6 +25,10 @@
   ansible.builtin.command: lscpu -p=SOCKET
   register: socket_info
 
+- name: Set OS  information
+  ansible.builtin.set_fact:
+    ansible_network_os: "{{ dist.ansible_facts.ansible_os_family }}"
+
 - name: Set CPU sockets fact
   ansible.builtin.set_fact:
     cpu_sockets: "{{ socket_info.stdout_lines | select('match', '^[0-9]+$') | unique | list }}"
