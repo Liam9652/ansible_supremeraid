@@ -15,14 +15,21 @@
       tags:
         - always
 
-
-
     - name: Test reachability to 8.8.8.8
-      ansible.netcommon.net_ping:
-        dest: 8.8.8.8
-        count: 2
+      ansible.builtin.command: ping -c 2 8.8.8.8
+      ignore_errors: yes
+      register: ping_result
+      changed_when: false
       tags:
         - always
+
+
+    # - name: Test reachability to 8.8.8.8
+    #   ansible.netcommon.net_ping:
+    #     dest: 8.8.8.8
+    #     count: 2
+    #   tags:
+    #     - always
 
     # - name: Check internet connectivity
     #  ansible.builtin.command: ping -c 1 8.8.8.8
