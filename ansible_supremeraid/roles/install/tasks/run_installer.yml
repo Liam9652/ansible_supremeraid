@@ -31,6 +31,19 @@
     msg: "Installer file not found: {{ installer_filename }}"
   when: found_files.matched == 0
 
+- name: Query the graid version when update
+  ansible.builtin.command: graidctl version --format json
+  register: graidctl_output
+  become: true
+  ignore_errors: true
+  tags: [update]
+
+- name: remove and backup the old_installation log
+  ansible.builtin.command: mv /var/log/graid-installer/installer.log /var/log/graid-installer/installer.log.bak
+  become: true
+  when: graidctl_output.rc == 0
+  tags: [update]
+
 - name: Set installer path
   ansible.builtin.set_fact:
     installer_path: "{{ found_files.files[0].path }}"
@@ -60,9 +73,9 @@
     delay: 30
     timeout: 300
 
-- name: Check network connectivity after pre-installer
+- name: Check network connectivity after installer
   ansible.builtin.ping:
-  register: ping_result_after_preinstaller
+  register: ping_result_after_installer
   ignore_errors: true
 
 - name: Wait for SSH to come back
@@ -72,5 +85,5 @@
     delay: 30
     timeout: 1200
     state: started
-  when: ping_result_after_preinstaller is failed
+  when: ping_result_after_installer is failed
   ignore_unreachable: true
