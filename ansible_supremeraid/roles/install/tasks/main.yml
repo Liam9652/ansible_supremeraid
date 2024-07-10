@@ -21,4 +21,4 @@
 
 - name: Run installer
   import_tasks: run_installer.yml
-  tags: [install]
+  tags: [install,update]
