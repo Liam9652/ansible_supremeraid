@@ -1,11 +1,11 @@
 ---
 # tasks file for identify_system
 - name: Display OS Information
-  debug:
+  ansible.builtin.debug:
     msg: "Identifying OS: {{ ansible_distribution }}, Family: {{ ansible_os_family }}"
 
 - name: Display Distribution Facts
-  debug:
+  ansible.builtin.debug:
     msg: |
       Architecture: {{ dist.ansible_facts.ansible_architecture }}
       Processor Count: {{ dist.ansible_facts.ansible_processor_count }}

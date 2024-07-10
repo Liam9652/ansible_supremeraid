@@ -18,7 +18,7 @@
 
 - name: Check if pre-installer file exists on target
   ansible.builtin.stat:
-    path: "{{graid_path}}{{ pre_installer_url | basename }}"
+    path: "{{ graid_path }}{{ pre_installer_url | basename }}"
   register: pre_installer_file
   tags:
     - downloads
@@ -31,7 +31,7 @@
 
 - name: Check if installer files exist on target
   ansible.builtin.stat:
-    path: "{{graid_path}}{{ item | basename }}"
+    path: "{{ graid_path }}{{ item | basename }}"
   with_items: "{{ installer_urls }}"
   register: installer_files
   tags:

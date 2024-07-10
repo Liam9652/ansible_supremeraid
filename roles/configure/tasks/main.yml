@@ -7,4 +7,3 @@
 - name: Configure RAID
   ansible.builtin.import_tasks: raid_function.yml
   tags: [raid]
-

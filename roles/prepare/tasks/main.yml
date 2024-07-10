@@ -7,4 +7,3 @@
 - name: Query serial
   ansible.builtin.import_tasks: query_serial.yml
   tags: [query]
-

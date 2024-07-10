@@ -2,11 +2,11 @@
 # tasks file for run_installer
 
 - name: Include query_serial role
-  include_tasks: ../prepare/tasks/query_serial.yml
+  ansible.builtin.include_tasks: ../prepare/tasks/query_serial.yml
 
 - name: GPU model shown
   ansible.builtin.debug:
-    msg: "GPU: {{ query_gpu_name + ' ('+ installer_suffix + ')'}}"
+    msg: "GPU: {{ query_gpu_name + ' (' + installer_suffix + ')' }}"
 
 - name: Set installer filename
   ansible.builtin.set_fact:

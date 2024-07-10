@@ -19,7 +19,7 @@
   ignore_unreachable: true
 
 - name: Clear host errors
-  meta: clear_host_errors
+  ansible.builtin.meta: clear_host_errors
 
 - name: Wait for the server to finish rebooting
   ansible.builtin.wait_for_connection:

@@ -68,4 +68,3 @@
 - name: Debug output of newly created drive groups
   ansible.builtin.debug:
     msg: "Newly created drive groups: {{ newly_added_dg_list }}"
-

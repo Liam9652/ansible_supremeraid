@@ -17,7 +17,7 @@
     fail_msg: "configure_vd_counts must be a positive integer"
 
 - name: Query nvme devices
-  become:  true
+  become: true
   ansible.builtin.command: "graidctl ls nd --format=json"
   register: graidctl_ls_nd_output
 
@@ -37,7 +37,7 @@
 
 - name: Limit to specified device count
   ansible.builtin.set_fact:
-    filtered_devices: "{{ filtered_devices[:configure_device_count | int ] }}"
+    filtered_devices: "{{ filtered_devices[: configure_device_count | int] }}"
 
 - name: Calculate total capacity of filtered devices
   ansible.builtin.set_fact:

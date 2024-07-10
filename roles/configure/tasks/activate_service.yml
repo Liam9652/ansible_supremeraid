@@ -25,11 +25,11 @@
   ansible.builtin.debug:
     msg: "All controllers have applied licenses: {{ all_controllers_applied }}"
 
-- name: debug serial number from target server
+- name: Debug serial number from target server
   ansible.builtin.debug:
     var: serial_output
 
-- name: debug all_controllers_applied value
+- name: Debug all_controllers_applied value
   ansible.builtin.debug:
     var: all_controllers_applied
 

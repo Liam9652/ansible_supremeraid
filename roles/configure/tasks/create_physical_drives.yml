@@ -26,7 +26,7 @@
 
 - name: Group newly added physical drives by NUMA node
   ansible.builtin.set_fact:
-    pd_list_by_numa: "{{ pd_list_by_numa | default({}) | combine({ item.Numa: pd_list_by_numa[item.Numa] | default([]) + [item.PdId] }) }}"
+    pd_list_by_numa: "{{ pd_list_by_numa | default({}) | combine({item.Numa: pd_list_by_numa[item.Numa] | default([]) + [item.PdId]}) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
   when:
     - configure_create_by_numa | bool
@@ -34,7 +34,7 @@
 
 - name: Group newly added physical drives by CPU socket
   ansible.builtin.set_fact:
-    pd_list_by_socket: "{{ pd_list_by_socket | default({}) | combine({ (item.Numa | int // 2): pd_list_by_socket[(item.Numa | int // 2)] | default([]) + [item.PdId] }) }}"
+    pd_list_by_socket: "{{ pd_list_by_socket | default({}) | combine({(item.Numa | int // 2): pd_list_by_socket[(item.Numa | int // 2)] | default([]) + [item.PdId]}) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
   when:
     - configure_create_by_socket | int > 0
@@ -52,4 +52,3 @@
       - "PDs by NUMA: {{ pd_list_by_numa | default({}) }}"
       - "PDs by Socket: {{ pd_list_by_socket | default({}) }}"
       - "All new PDs: {{ pd_list_all | default([]) }}"
-

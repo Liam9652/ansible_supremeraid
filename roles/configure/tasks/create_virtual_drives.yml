@@ -67,3 +67,4 @@
       - "Attempted to create VDs for DGs: {{ newly_added_dg_list }}"
       - "All virtual drives: {{ vd_list }}"
       - "Creation results: {{ create_vd_results.results | map(attribute='stdout') | list if configure_vd_size | length > 0 else create_full_vd_results.results | map(attribute='stdout') | list }}"
+
