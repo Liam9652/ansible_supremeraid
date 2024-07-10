@@ -1,0 +1,10 @@
+---
+# handlers file for configure
+- name: Restart graid-mgr service
+  ansible.builtin.systemd:
+    name: graid-mgr.service
+    state: restarted
+
+- name: Reload firewall
+  ansible.builtin.command: firewall-cmd --reload
+  when: ansible_facts['os_family'] == "RedHat"

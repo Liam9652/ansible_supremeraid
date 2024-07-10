@@ -68,3 +68,24 @@
   when:
     - not is_license_key_valid
     - not all_controllers_applied
+
+- name: Ensure graid-mgr.service is enabled
+  ansible.builtin.systemd:
+    name: graid-mgr.service
+    enabled: yes
+  notify: Restart graid-mgr service
+
+- name: Open firewall port for graid-mgr (Ubuntu)
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ configure_graid_mgr_port }}"
+    proto: tcp
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Open firewall port for graid-mgr (RHEL/CentOS)
+  ansible.posix.firewalld:
+    port: "{{ configure_graid_mgr_port }}/tcp"
+    permanent: yes
+    state: enabled
+  notify: Reload firewall
+  when: ansible_facts['os_family'] == "RedHat"
