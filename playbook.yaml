@@ -1,7 +1,6 @@
 ---
 - name: SupremeRAID Installation Playbook
   hosts: supremraid_servers
-  become: true
   gather_facts: true
 
   vars_files:
@@ -15,19 +14,13 @@
       tags:
         - always
 
-    - name: Test reachability to 8.8.8.8
-      ansible.netcommon.net_ping:
-        dest: 8.8.8.8
-        count: 2
+    - name: Check internet connectivity
+      ansible.builtin.command: ping -c 1 8.8.8.8
+      register: ping_result
+      ignore_errors: true
+      changed_when: false
       tags:
         - always
-
-    # - name: Check internet connectivity
-    #  ansible.builtin.command: ping -c 1 8.8.8.8
-    #  register: ping_result
-    #  ignore_errors: true
-    # changed_when: false
-    #  tags: always
 
     - name: Set install mode to online if internet is available
       ansible.builtin.set_fact:
@@ -44,23 +37,26 @@
 
   tasks:
     - name: Run prepare tasks
-      import_role:
+      ansible.builtin.include_role:
         name: prepare
       tags: [prepare]
 
     - name: Run install tasks
-      import_role:
+      ansible.builtin.include_role:
         name: install
-      tags: [install]
+      tags:
+        - install
+        - downloads
 
     - name: Run configure tasks
-      import_role:
+      ansible.builtin.include_role:
         name: configure
       tags: [configure]
 
   post_tasks:
     - name: Fail if unsupported OS
-      fail:
+      ansible.builtin.fail:
         msg: "Unsupported operating system: {{ ansible_distribution }}"
       when: ansible_os_family not in ["RedHat", "Debian", "Windows"]
-      tags: unsupported
+      tags:
+        - unsupported

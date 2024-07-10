@@ -28,7 +28,7 @@
 - name: Copy pre-installer to remote host
   ansible.builtin.copy:
     src: "./local_downloads/{{ pre_installer_url | basename }}"
-    dest: "~/graid_package/{{ pre_installer_url | basename }}"
+    dest: "{{ graid_path }}{{ pre_installer_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
@@ -36,7 +36,7 @@
 - name: Copy installers to remote host
   ansible.builtin.copy:
     src: "./local_downloads/{{ item | basename }}"
-    dest: "~/graid_package/{{ item | basename }}"
+    dest: "{{ graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ installer_urls }}"
   when:

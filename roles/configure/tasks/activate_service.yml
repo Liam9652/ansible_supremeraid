@@ -1,7 +1,7 @@
 ---
 # tasks file for activate_service
 - name: Include query_serial role
-  include_tasks: ../prepare/tasks/query_serial.yml
+  ansible.builtin.include_tasks: ../prepare/tasks/query_serial.yml
 
 - name: Check current license state
   ansible.builtin.command: graidctl desc lic --format json
@@ -49,21 +49,21 @@
 
 - name: Apply license key
   become: true
-  command: "graidctl apply lic {{ license_key }}"
+  ansible.builtin.command: "graidctl apply lic {{ license_key }}"
   when:
     - is_license_key_valid
     - not all_controllers_applied
   register: license_application_result
 
 - name: Display license application result
-  debug:
+  ansible.builtin.debug:
     var: license_application_result
   when:
     - is_license_key_valid
     - not all_controllers_applied
 
 - name: Fail if license key is invalid
-  fail:
+  ansible.builtin.fail:
     msg: "Failed to obtain a valid license key"
   when:
     - not is_license_key_valid

@@ -1,0 +1,10 @@
+---
+# tasks file for configure
+- name: Activate service
+  ansible.builtin.import_tasks: activate_service.yml
+  tags: [activate]
+
+- name: Configure RAID
+  ansible.builtin.import_tasks: raid_function.yml
+  tags: [raid]
+

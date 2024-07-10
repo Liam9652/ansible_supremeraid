@@ -1,0 +1,15 @@
+---
+- name: Include identify_system role
+  ansible.builtin.include_tasks: ../prepare/tasks/identify_system.yml
+
+- name: Set default values and query devices
+  ansible.builtin.import_tasks: prepare_devices.yml
+
+- name: Create physical drives
+  ansible.builtin.import_tasks: create_physical_drives.yml
+
+- name: Create drive groups
+  ansible.builtin.import_tasks: create_drive_groups.yml
+
+- name: Create virtual drives
+  ansible.builtin.import_tasks: create_virtual_drives.yml

@@ -4,29 +4,38 @@
 - name: Check if the graid_package directory exists
   ansible.builtin.stat:
     path: "{{ graid_path }}"
-    become: true
   register: dir_stat
+  tags:
+    - downloads
 
 - name: Create graid_package directory if it does not exist
   ansible.builtin.file:
     path: "{{ graid_path }}"
     state: directory
   when: not dir_stat.stat.exists
+  tags:
+    - downloads
 
 - name: Check if pre-installer file exists on target
   ansible.builtin.stat:
     path: "{{graid_path}}{{ pre_installer_url | basename }}"
   register: pre_installer_file
+  tags:
+    - downloads
 
 - name: Display install mode
   ansible.builtin.debug:
     msg: "Install mode is {{ install_mode }}"
+  tags:
+    - downloads
 
 - name: Check if installer files exist on target
   ansible.builtin.stat:
     path: "{{graid_path}}{{ item | basename }}"
   with_items: "{{ installer_urls }}"
   register: installer_files
+  tags:
+    - downloads
 
 - name: Download pre-installer to remote host directly
   ansible.builtin.get_url:
@@ -36,6 +45,8 @@
   when:
     - install_mode == "online"
     - pre_installer_file.stat.exists is not defined or not pre_installer_file.stat.exists
+  tags:
+    - downloads
 
 - name: Download installers to remote host directly
   ansible.builtin.get_url:
@@ -48,3 +59,5 @@
   loop: "{{ installer_urls }}"
   loop_control:
     label: "{{ item }}"
+  tags:
+    - downloads

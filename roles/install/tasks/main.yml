@@ -1,24 +1,24 @@
 ---
 # tasks file for install
 - name: Download packages
-  import_tasks: download_packages.yml
-  tags: [download]
+  ansible.builtin.import_tasks: download_packages.yml
+  tags: [downloads]
 
 - name: Copy files
-  import_tasks: copy_files.yml
+  ansible.builtin.import_tasks: copy_files.yml
   tags: [copy]
   when: install_mode == 'offline'
 
 - name: Setup environment (Online)
-  import_tasks: online_setup.yml
+  ansible.builtin.import_tasks: online_setup.yml
   tags: [setup]
   when: install_mode == 'online'
 
 - name: Setup environment (Offline)
-  import_tasks: offline_setup.yml
+  ansible.builtin.import_tasks: offline_setup.yml
   tags: [setup]
   when: install_mode == 'offline'
 
 - name: Run installer
-  import_tasks: run_installer.yml
+  ansible.builtin.import_tasks: run_installer.yml
   tags: [install]
