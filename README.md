@@ -129,6 +129,7 @@ Use tags to run specific parts of the playbook:
 - `configure`: Run configuration tasks
   - `activate`: Activate service
   - `raid`: Configure RAID
+- `downloads`: Downloads only SupremeRAID packages
 
 Example: To only configure RAID:
 
