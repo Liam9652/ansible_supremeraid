@@ -1,2 +1,2 @@
 ---
-install_graid_path: "/root/graid_package/"
+graid_path: "/root/graid_package/"
