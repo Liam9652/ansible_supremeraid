@@ -5,6 +5,7 @@
   ansible.builtin.file:
     path: "./local_downloads"
     state: directory
+    mode: "0755"
 
 - name: Download pre-installer to control node
   delegate_to: localhost

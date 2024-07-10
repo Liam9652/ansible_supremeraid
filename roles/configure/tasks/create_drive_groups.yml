@@ -22,7 +22,7 @@
     graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_numa | dict2items }}"
-  when: configure_create_by_numa | bool
+  change_when: configure_create_by_numa | bool
   register: create_dg_numa_results
 
 - name: Create drive groups by Socket
@@ -31,7 +31,7 @@
     graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_socket | dict2items }}"
-  when: configure_create_by_socket | int > 0
+  change_when: configure_create_by_socket | int > 0
   register: create_dg_socket_results
 
 - name: Create single drive group
@@ -39,7 +39,7 @@
   ansible.builtin.command: >
     graidctl create dg {{ configure_raid_type }} {{ pd_list_all | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
-  when: not configure_create_by_numa and configure_create_by_socket | int == 0
+  change_when: not configure_create_by_numa and configure_create_by_socket | int == 0
   register: create_dg_single_result
 
 - name: Query new drive groups
@@ -64,7 +64,7 @@
   until: (dg_status_output.stdout | from_json).Result | selectattr('DgId', 'in', newly_added_dg_list) | map(attribute='State') | list | unique == ['OPTIMAL']
   retries: 1000000 # 設置一個非常大的重試次數
   delay: 10 # 每10秒檢查一次
-  when: configure_dg_foreground_init | bool
+  change_when: configure_dg_foreground_init | bool
 
 - name: Debug output of newly created drive groups
   ansible.builtin.debug:

@@ -2,7 +2,7 @@
 # tasks file for online_install
 
 - name: Run SupremeRAID pre-installer in online mode
-  ansible.builtin.command: "bash ~/graid_package/{{ pre_installer_url | basename }} --yes"
+  ansible.builtin.command: "bash {{ graid_path }}{{ pre_installer_url | basename }} --yes"
   async: 1800
   poll: 0
   register: preinstaller_job

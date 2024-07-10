@@ -36,12 +36,12 @@
 - name: Get license key using serial number
   ansible.builtin.set_fact:
     license_key: "{{ serial_output.stdout_lines[0].split(', ')[2] | get_license_key(configure_license_mapping_csv) }}"
-  when: not all_controllers_applied
+  change_when: not all_controllers_applied
 
 - name: Display license key
   ansible.builtin.debug:
     var: license_key
-  when: not all_controllers_applied
+  change_when: not all_controllers_applied
 
 - name: Check if license key is valid
   ansible.builtin.set_fact:
@@ -50,7 +50,7 @@
 - name: Apply license key
   become: true
   ansible.builtin.command: "graidctl apply lic {{ license_key }}"
-  when:
+  change_when:
     - is_license_key_valid
     - not all_controllers_applied
   register: license_application_result
