@@ -14,22 +14,14 @@
       tags:
         - always
 
-<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
     - name: Test reachability to 8.8.8.8
       ansible.builtin.command: ping -c 2 8.8.8.8
       ignore_errors: yes
       register: ping_result
-=======
-    - name: Check internet connectivity
-      ansible.builtin.command: ping -c 1 8.8.8.8
-      register: ping_result
-      ignore_errors: true
->>>>>>> itlinux/updates_july10:playbook.yaml
       changed_when: false
       tags:
         - always
 
-<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
 
     # - name: Test reachability to 8.8.8.8
     #   ansible.netcommon.net_ping:
@@ -45,8 +37,6 @@
     # changed_when: false
     #  tags: always
 
-=======
->>>>>>> itlinux/updates_july10:playbook.yaml
     - name: Set install mode to online if internet is available
       ansible.builtin.set_fact:
         install_mode: "online"
@@ -82,11 +72,5 @@
     - name: Fail if unsupported OS
       ansible.builtin.fail:
         msg: "Unsupported operating system: {{ ansible_distribution }}"
-<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
       when: ansible_os_family not in ["RedHat", "Debian", "SLES", "Windows"]
       tags: unsupported
-=======
-      when: ansible_os_family not in ["RedHat", "Debian", "Windows"]
-      tags:
-        - unsupported
->>>>>>> itlinux/updates_july10:playbook.yaml

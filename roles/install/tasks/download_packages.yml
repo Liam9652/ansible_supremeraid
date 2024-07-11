@@ -4,10 +4,6 @@
 - name: Check if the graid_package directory exists
   ansible.builtin.stat:
     path: "{{ graid_path }}"
-<<<<<<< HEAD:ansible_supremeraid/roles/install/tasks/download_packages.yml
-  become: true
-=======
->>>>>>> itlinux/updates_july10:roles/install/tasks/download_packages.yml
   register: dir_stat
   tags:
     - downloads
@@ -98,7 +94,6 @@
     - installer_files.results[loop.index0].stat.exists is not defined or not installer_files.results[loop.index0].stat.exists
   loop: "{{ installer_urls }}"
   loop_control:
-<<<<<<< HEAD:ansible_supremeraid/roles/install/tasks/download_packages.yml
     label: "{{ item | basename }}"
 
 - name: Set correct permissions for downloaded installers
@@ -122,8 +117,3 @@
   when:
     - wget_installer_result is changed
     - not item.stat.exists or item.stat.size == 0
-=======
-    label: "{{ item }}"
-  tags:
-    - downloads
->>>>>>> itlinux/updates_july10:roles/install/tasks/download_packages.yml

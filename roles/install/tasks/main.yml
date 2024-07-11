@@ -20,10 +20,5 @@
   when: install_mode == 'offline'
 
 - name: Run installer
-<<<<<<< HEAD:ansible_supremeraid/roles/install/tasks/main.yml
   import_tasks: run_installer.yml
   tags: [install,update]
-=======
-  ansible.builtin.import_tasks: run_installer.yml
-  tags: [install]
->>>>>>> itlinux/updates_july10:roles/install/tasks/main.yml
