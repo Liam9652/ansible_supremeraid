@@ -1,0 +1,92 @@
+---
+- name: SupremeRAID Installation Playbook
+  hosts: supremraid_servers
+  gather_facts: true
+
+  vars_files:
+    - vars/supremeraid_vars.yaml
+    - vars/download_urls.yaml
+
+  pre_tasks:
+    - name: Gather OS Distribution Facts
+      ansible.builtin.setup:
+      register: dist
+      tags:
+        - always
+
+<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
+    - name: Test reachability to 8.8.8.8
+      ansible.builtin.command: ping -c 2 8.8.8.8
+      ignore_errors: yes
+      register: ping_result
+=======
+    - name: Check internet connectivity
+      ansible.builtin.command: ping -c 1 8.8.8.8
+      register: ping_result
+      ignore_errors: true
+>>>>>>> itlinux/updates_july10:playbook.yaml
+      changed_when: false
+      tags:
+        - always
+
+<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
+
+    # - name: Test reachability to 8.8.8.8
+    #   ansible.netcommon.net_ping:
+    #     dest: 8.8.8.8
+    #     count: 2
+    #   tags:
+    #     - always
+
+    # - name: Check internet connectivity
+    #  ansible.builtin.command: ping -c 1 8.8.8.8
+    #  register: ping_result
+    #  ignore_errors: true
+    # changed_when: false
+    #  tags: always
+
+=======
+>>>>>>> itlinux/updates_july10:playbook.yaml
+    - name: Set install mode to online if internet is available
+      ansible.builtin.set_fact:
+        install_mode: "online"
+      when: ping_result.rc == 0
+      tags:
+        - always
+
+    - name: Display install mode
+      ansible.builtin.debug:
+        msg: "Install mode is {{ install_mode }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Run prepare tasks
+      ansible.builtin.include_role:
+        name: prepare
+      tags: [prepare]
+
+    - name: Run install tasks
+      ansible.builtin.include_role:
+        name: install
+      tags:
+        - install
+        - downloads
+
+    - name: Run configure tasks
+      ansible.builtin.include_role:
+        name: configure
+      tags: [configure]
+
+  post_tasks:
+    - name: Fail if unsupported OS
+      ansible.builtin.fail:
+        msg: "Unsupported operating system: {{ ansible_distribution }}"
+<<<<<<< HEAD:ansible_supremeraid/playbook.yaml
+      when: ansible_os_family not in ["RedHat", "Debian", "SLES", "Windows"]
+      tags: unsupported
+=======
+      when: ansible_os_family not in ["RedHat", "Debian", "Windows"]
+      tags:
+        - unsupported
+>>>>>>> itlinux/updates_july10:playbook.yaml

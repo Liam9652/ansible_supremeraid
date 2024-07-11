@@ -1,0 +1,64 @@
+---
+# tasks file for query_serial
+- name: Query serial number
+  ansible.builtin.command: nvidia-smi --query-gpu=index,name,serial --format=csv,noheader
+  register: serial_output
+  ignore_errors: true
+  failed_when: serial_output.rc != 0
+
+- name: Debug GPU information
+  ansible.builtin.debug:
+    var: serial_output.stdout
+  changed_when:
+    - serial_output.rc == 0
+
+- name: Parse GPU information
+  ansible.builtin.set_fact:
+    gpu_data: "{{ serial_output.stdout.split('\n') | map('split', ', ') | list }}"
+  failed_when: gpu_data is not defined
+  changed_when:
+    - serial_output.rc == 0
+
+- name: Ensure GPU data is valid
+  ansible.builtin.fail:
+    msg: "GPU data is invalid: {{ gpu_data }}"
+  changed_when:
+    - gpu_data is not defined or gpu_data | length == 0
+    - serial_output.rc == 0
+
+- name: Parse GPU name and serial
+  ansible.builtin.set_fact:
+    query_gpu_name: "{{ gpu_data[0][1] }}"
+    serial_number: "{{ gpu_data[0][2] }}"
+  changed_when:
+    - gpu_data is defined
+    - gpu_data | length > 0
+    - serial_output.rc == 0
+
+- name: Determine installer package based on GPU name
+  ansible.builtin.set_fact:
+    installer_suffix: >-
+      {% if 'A2000' in query_gpu_name %}
+      010
+      {% elif 'T1000' in query_gpu_name %}
+      000
+      {% elif 'T400' in query_gpu_name %}
+      001
+      {% else %}
+        unsupported
+      {% endif %}
+  changed_when: query_gpu_name is defined
+
+- name: Fail if GPU is not supported
+  ansible.builtin.fail:
+    msg: "Unsupported GPU: {{ query_gpu_name }}"
+  changed_when:
+    - query_gpu_name is defined
+    - query_gpu_name != ''
+    - installer_suffix == 'unsupported'
+
+- name: Trim installer suffix
+  ansible.builtin.set_fact:
+    installer_suffix: "{{ installer_suffix | trim }}"
+  changed_when:
+    - query_gpu_name is defined

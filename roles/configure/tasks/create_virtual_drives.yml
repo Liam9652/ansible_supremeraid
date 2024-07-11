@@ -1,0 +1,69 @@
+---
+- name: Query drive groups
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
+  register: dg_query_output
+
+- name: Parse drive group information
+  ansible.builtin.set_fact:
+    dg_info: "{{ (dg_query_output.stdout | from_json).Result | selectattr('DgId', 'in', newly_added_dg_list) | list }}"
+
+- name: Calculate available capacity for each drive group
+  ansible.builtin.set_fact:
+    dg_available_capacity: "{{ dg_available_capacity | default({}) | combine({item.DgId: item.Free | int}) }}"
+  loop: "{{ dg_info }}"
+
+- name: Convert configure_vd_size to bytes
+  ansible.builtin.set_fact:
+    configure_vd_size_bytes: "{{ configure_vd_size | convert_to_bytes }}"
+  when: configure_vd_size | length > 0
+
+- name: Validate VD size and count for each drive group
+  ansible.builtin.assert:
+    that:
+      - (configure_vd_size_bytes | int * configure_vd_counts | int ) <= dg_available_capacity[item]| int
+    fail_msg: "Requested VD size ({{ configure_vd_size_bytes | int * configure_vd_counts | int }} bytes) exceeds available capacity ({{ dg_available_capacity[item] | int }} bytes) for drive group {{ item }}"
+  loop: "{{ newly_added_dg_list }}"
+  when: configure_vd_size | length > 0
+
+- name: Create virtual drives for newly created drive groups
+  become: true
+  ansible.builtin.command: >
+    graidctl create vd {{ item.0 }}
+    {% if configure_vd_size | length > 0 %} {{ configure_vd_size }}{% endif %}
+  loop: "{{ newly_added_dg_list | product(range(configure_vd_counts | int)) | list }}"
+  loop_control:
+    label: "DG {{ item.0 }}, VD {{ item.1 + 1 }}"
+  register: create_vd_results
+  change_when: configure_vd_size | length > 0
+
+- name: Create full-size virtual drives for newly created drive groups
+  become: true
+  ansible.builtin.command: >
+    graidctl create vd {{ item }}
+  loop: "{{ newly_added_dg_list }}"
+  register: create_full_vd_results
+  change_when: configure_vd_size | length == 0
+
+- name: Query virtual drives
+  become: true
+  ansible.builtin.command: graidctl ls vd --format=json
+  register: graidctl_ls_vd_output
+
+- name: Parse JSON output for virtual drives
+  ansible.builtin.set_fact:
+    vd_list: "{{ (graidctl_ls_vd_output.stdout | from_json).Result | map(attribute='VdId') | list }}"
+
+- name: Verify virtual drives were created
+  ansible.builtin.fail:
+    msg: "Failed to create any virtual drives."
+  when:
+    - (configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) or
+      (configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0)
+
+- name: Debug output of created virtual drives
+  ansible.builtin.debug:
+    msg:
+      - "Attempted to create VDs for DGs: {{ newly_added_dg_list }}"
+      - "All virtual drives: {{ vd_list }}"
+      - "Creation results: {{ create_vd_results.results | map(attribute='stdout') | list if configure_vd_size | length > 0 else create_full_vd_results.results | map(attribute='stdout') | list }}"

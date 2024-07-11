@@ -1,0 +1,5 @@
+[supremraid_servers]
+localhost 
+# 1.1.1.3 ansible_user=remo
+# 1.1.1.5 ansible_user=liam
+# 172.18.0.222 ansible _user=root

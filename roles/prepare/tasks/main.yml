@@ -1,0 +1,9 @@
+---
+# tasks file for prepare
+- name: Identify system
+  ansible.builtin.import_tasks: identify_system.yml
+  tags: [identify]
+
+- name: Query serial
+  ansible.builtin.import_tasks: query_serial.yml
+  tags: [query]
