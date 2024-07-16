@@ -1,7 +1,6 @@
 ---
 - name: Query existing drive groups
-  become: true
-  ansible.builtin.command: graidctl ls dg --format=json
+  ansible.builtin.command: sudo graidctl ls dg --format=json
   register: existing_dg_output
 
 - name: Parse existing drive groups
@@ -16,13 +15,33 @@
     (configure_create_by_socket | int > 0 and not pd_list_by_socket) or
     (not configure_create_by_numa and configure_create_by_socket | int == 0 and not pd_list_all)
 
+- name: Debug - Show detailed condition evaluation
+  ansible.builtin.debug:
+    msg:
+      - "configure_create_by_numa: {{ configure_create_by_numa }}"
+      - "configure_create_by_numa (as bool): {{ configure_create_by_numa | bool }}"
+      - "configure_create_by_socket: {{ configure_create_by_socket }}"
+      - "configure_create_by_socket (as int): {{ configure_create_by_socket | default('-1') | int }}"
+      - "Condition 1 result: {{ configure_create_by_numa | bool }}"
+      - "Condition 2 result: {{ configure_create_by_socket | default('-1') | int < 0 }}"
+      - "Overall condition result: {{ (configure_create_by_numa | bool) and (configure_create_by_socket | default('-1') | int < 0) }}"
+
+- name: Debug - Check condition
+  ansible.builtin.debug:
+    msg: "Condition met for creating drive groups by NUMA"
+  when:
+    - configure_create_by_numa | bool
+    - configure_create_by_socket | default('-1') | int < 0
+
 - name: Create drive groups by NUMA
   become: true
   ansible.builtin.command: >
     graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_numa | dict2items }}"
-  change_when: configure_create_by_numa | bool
+  when:
+    - configure_create_by_numa | bool
+    - configure_create_by_socket == '' or configure_create_by_socket | int < 0
   register: create_dg_numa_results
 
 - name: Create drive groups by Socket
@@ -31,7 +50,9 @@
     graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
   loop: "{{ pd_list_by_socket | dict2items }}"
-  change_when: configure_create_by_socket | int > 0
+  when:
+    - configure_create_by_socket | int > 0
+    - not configure_create_by_numa | bool
   register: create_dg_socket_results
 
 - name: Create single drive group
@@ -39,7 +60,7 @@
   ansible.builtin.command: >
     graidctl create dg {{ configure_raid_type }} {{ pd_list_all | join(',') }}
     {% if configure_dg_foreground_init %} -z{% endif %}
-  change_when: not configure_create_by_numa and configure_create_by_socket | int == 0
+  when: not configure_create_by_numa and configure_create_by_socket | int == 0
   register: create_dg_single_result
 
 - name: Query new drive groups
@@ -52,6 +73,12 @@
     new_dg_list: "{{ (new_dg_output.stdout | from_json).Result | map(attribute='DgId') | list }}"
     newly_added_dg_list: "{{ (new_dg_output.stdout | from_json).Result | map(attribute='DgId') | list | difference(existing_dg_list) }}"
 
+# - name: Debug - Check condition
+#   ansible.builtin.debug:
+#     var:
+#       - { { new_dg_list } }
+#       - { { newly_added_dg_list } }
+
 - name: Verify new drive groups were created
   ansible.builtin.fail:
     msg: "Failed to create any new drive groups."
@@ -62,9 +89,9 @@
   ansible.builtin.command: graidctl ls dg --format=json
   register: dg_status_output
   until: (dg_status_output.stdout | from_json).Result | selectattr('DgId', 'in', newly_added_dg_list) | map(attribute='State') | list | unique == ['OPTIMAL']
-  retries: 1000000 # 設置一個非常大的重試次數
-  delay: 10 # 每10秒檢查一次
-  change_when: configure_dg_foreground_init | bool
+  retries: 1000000
+  delay: 60
+  when: configure_dg_foreground_init | bool
 
 - name: Debug output of newly created drive groups
   ansible.builtin.debug:

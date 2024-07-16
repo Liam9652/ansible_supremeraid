@@ -10,7 +10,7 @@
 
 - name: Create physical drives
   become: true
-  ansible.builtin.command: "graidctl create pd {{ item.DevPath }}"
+  ansible.builtin.command: "graidctl create pd {{ item[configure_pd_create_attribute] }}"
   loop: "{{ filtered_devices }}"
   register: create_pd_results
 
@@ -26,17 +26,21 @@
 
 - name: Group newly added physical drives by NUMA node
   ansible.builtin.set_fact:
-    pd_list_by_numa: "{{ pd_list_by_numa | default({}) | combine({item.Numa: pd_list_by_numa[item.Numa] | default([]) + [item.PdId]}) }}"
+    pd_list_by_numa: "{{ pd_list_by_numa | default({}) | combine({ 
+      item.Numa: pd_list_by_numa[item.Numa] | default([]) + [item.PdId]
+    }) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
-  when:
+  when: 
     - configure_create_by_numa | bool
     - item.PdId in newly_added_pd_list
 
 - name: Group newly added physical drives by CPU socket
   ansible.builtin.set_fact:
-    pd_list_by_socket: "{{ pd_list_by_socket | default({}) | combine({(item.Numa | int // 2): pd_list_by_socket[(item.Numa | int // 2)] | default([]) + [item.PdId]}) }}"
+    pd_list_by_socket: "{{ pd_list_by_socket | default({}) | combine({ 
+      (item.Numa | int // 2): pd_list_by_socket[(item.Numa | int // 2)] | default([]) + [item.PdId]
+    }) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
-  when:
+  when: 
     - configure_create_by_socket | int > 0
     - item.PdId in newly_added_pd_list
 
@@ -47,7 +51,7 @@
 
 - name: Debug output of newly added PDs
   ansible.builtin.debug:
-    msg:
+    msg: 
       - "Newly added PDs: {{ newly_added_pd_list }}"
       - "PDs by NUMA: {{ pd_list_by_numa | default({}) }}"
       - "PDs by Socket: {{ pd_list_by_socket | default({}) }}"

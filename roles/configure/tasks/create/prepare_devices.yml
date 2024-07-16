@@ -3,12 +3,38 @@
   ansible.builtin.set_fact:
     configure_raid_type: "{{ configure_raid_type | default('raid5') }}"
     configure_device_model_name: "{{ configure_device_model_name | default('QEMU NVMe Ctrl') }}"
-    configure_device_count: "{{ configure_device_count | default(5) }}"
+    configure_device_count: "{{ configure_device_count | default('') }}"
     configure_vd_size: "{{ configure_vd_size | default('') }}"
     configure_create_by_numa: "{{ configure_create_by_numa | default(false) }}"
     configure_create_by_socket: "{{ configure_create_by_socket | default('') }}"
     configure_dg_foreground_init: "{{ configure_dg_foreground_init | default(false) }}"
     configure_vd_counts: "{{ configure_vd_counts | default(1) | int }}"
+
+- name: Validate PD attributes
+  ansible.builtin.assert:
+    that:
+      - configure_pd_sorting in valid_pd_attributes
+      - configure_pd_create_attribute in valid_pd_attributes
+    fail_msg: >
+      Invalid attributes specified. 
+      Sorting attribute: '{{ configure_pd_sorting }}', 
+      Create attribute: '{{ configure_pd_create_attribute }}'. 
+      Valid options are: {{ valid_pd_attributes | join(', ') }}
+
+- name: Validate RAID type
+  ansible.builtin.assert:
+    that:
+      - configure_raid_type in valid_raid_type
+    fail_msg: "Invalid RAID type: {{ configure_raid_type }}. Valid options are: {{ valid_raid_type | join(', ') }}"
+
+- name: Validate DG speed attributes
+  ansible.builtin.assert:
+    that:
+      - configure_dg_rebuild_speed in valid_dg_speed_attributes
+      - configure_dg_init_speed in valid_dg_speed_attributes
+      - configure_dg_cc_speed in valid_dg_speed_attributes
+      - configure_dg_resync_speed in valid_dg_speed_attributes
+    fail_msg: "Invalid speed setting. Valid options are: {{ valid_dg_speed_attributes | join(', ') }}"
 
 - name: Validate configure_vd_counts
   ansible.builtin.assert:
@@ -27,17 +53,37 @@
 
 - name: Filter devices by Model
   ansible.builtin.set_fact:
-    filtered_devices: "{{ parsed_output.Result | selectattr('Model', 'eq', configure_device_model_name) | list }}"
+    filtered_devices: >-
+      {{ parsed_output.Result | 
+         selectattr('Model', 'eq', configure_device_model_name) | 
+         sort(attribute=configure_pd_sorting) | 
+         list }}
+
+- name: Debug - Show filtered devices
+  ansible.builtin.debug:
+    var: filtered_devices
+
+- name: Set configure_device_count if not provided
+  ansible.builtin.set_fact:
+    configure_device_count: "{{ filtered_devices | length }}"
+  when: configure_device_count == '' or configure_device_count is not defined
+
+- name: Show configure_device_count
+  ansible.builtin.debug:
+    var: configure_device_count
+
+- name: Calculate if there are enough devices
+  ansible.builtin.set_fact:
+    has_enough_devices: "{{ (filtered_devices | length) >= (configure_device_count | int) }}"
 
 - name: Check if there are enough devices
   ansible.builtin.assert:
-    that:
-      - filtered_devices | length >= {{ configure_device_count | int }}
+    that: has_enough_devices
     fail_msg: "Not enough devices found. Required: {{ configure_device_count | int }}, Found: {{ filtered_devices | length }}"
 
 - name: Limit to specified device count
   ansible.builtin.set_fact:
-    filtered_devices: "{{ filtered_devices[: configure_device_count | int] }}"
+    filtered_devices: "{{ filtered_devices[:configure_device_count | int ] }}"
 
 - name: Calculate total capacity of filtered devices
   ansible.builtin.set_fact:
