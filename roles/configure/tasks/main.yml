@@ -5,5 +5,11 @@
   tags: [activate]
 
 - name: Configure RAID
-  ansible.builtin.import_tasks: raid_function.yml
+  ansible.builtin.import_tasks: create_raid.yml
   tags: [raid]
+  when: not configure_delete_raid
+
+- name: Uncompose RAID
+  ansible.builtin.import_tasks: delete_raid.yml
+  tags: [delete]
+  when: configure_delete_raid

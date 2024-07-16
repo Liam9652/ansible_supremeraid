@@ -1,24 +1,74 @@
 ---
 # vars file for configure
 configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
-configure_device_model_name: "QEMU NVMe Ctrl"
-configure_device_count: 1
+configure_device_model_name: "INTEL SSDPF2KX038TZ"
+## set hotspare or not, only global [true, false]
+configure_pd_hotspare: false
+## sorting device by [ Numa, DevPath, Address]
+configure_pd_sorting: 'Address'
+configure_pd_create_attribute: 'NQN'
+valid_pd_attributes:
+  - Numa
+  - DevPath
+  - Address
+  - NQN
 
-# dg related varibles
-configure_raid_type: "raid0"
+
+#dg related varibles
+configure_raid_type: 'raid5'
+valid_raid_type:
+  - raid0
+  - raid1
+  - raid5
+  - raid6
+  - raid10
+
 configure_dg_foreground_init: false
+## turn on/off vwc [on, off]
+configure_dg_pd_vwc: 'off'
+valid_dg_pd_vwc:
+  - on
+  - off
 
-# vd related varibles
-configure_vd_size: "200MB"
-configure_vd_counts: 2
+## enable/disable spdk_bdev [enable, disable]
+configure_dg_spdk_bdev: 'disable'
+valid_dg_spdk_bdev:
+  - enable
+  - disable
+## change journal policy  [always_off,degrade_only, always_on]
+configure_dg_journal: 'degrade_only'
+valid_dg_journal:
+  - always_off
+  - degrade_only
+  - always_on
+## change rebuild speed [low, normal, high, extreme]
+configure_dg_rebuild_speed: 'high'
+## change init speed [low, normal, high, extreme]
+configure_dg_init_speed: 'high'
+## change cc speed [low, normal, high, extreme]
+configure_dg_cc_speed: 'high'
+## change resync speed [low, normal, high, extreme]
+configure_dg_resync_speed: 'high'
+valid_dg_speed_attributes:
+  - low
+  - normal
+  - high
+  - extreme
+
+
+#vd related varibles
+configure_vd_size: '50GB'
+configure_vd_counts: 4
 
 # NUMA and Socket related variables
 configure_create_by_numa: false
-<<<<<<< HEAD:ansible_supremeraid/roles/configure/vars/main.yml
+# TBC, not ready
 configure_create_by_socket: ''
 
 # Setting Graid mgr port
 configure_graid_mgr_port: 50060
-=======
-configure_create_by_socket: ""
->>>>>>> itlinux/updates_july10:roles/configure/vars/main.yml
+
+
+# Delete all the raid configure, 
+# this parameters will clean up the raid configuration in the system
+configure_delete_raid: false

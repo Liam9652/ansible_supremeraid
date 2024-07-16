@@ -1,0 +1,146 @@
+---
+# roles/configure/tasks/delete_raid_config.yml
+
+- name: Gather information about RAID configuration
+  block:
+    - name: Check the amounts of VDs created
+      become: true
+      ansible.builtin.command: "graidctl ls vd --format=json"
+      register: graidctl_ls_vd_output
+      changed_when: false
+
+    - name: Check the amount of DGs created
+      become: true
+      ansible.builtin.command: "graidctl ls dg --format=json"
+      register: graidctl_ls_dg_output
+      changed_when: false
+
+    - name: Check the amount of PDs created
+      become: true
+      ansible.builtin.command: "graidctl ls pd --format=json"
+      register: graidctl_ls_pd_output
+      changed_when: false
+
+    - name: Parse VD, DG, and PD output
+      ansible.builtin.set_fact:
+        vd_list: "{{ graidctl_ls_vd_output.stdout | from_json }}"
+        dg_list: "{{ graidctl_ls_dg_output.stdout | from_json }}"
+        pd_list: "{{ graidctl_ls_pd_output.stdout | from_json }}"
+
+    - name: Get ZFS pool list
+      ansible.builtin.command: "zpool list -H -o name"
+      register: zpool_list
+      changed_when: false
+      failed_when: false
+
+    - name: Get ZFS pool status for each pool
+      ansible.builtin.command: "zpool status -P {{ item }}"
+      loop: "{{ zpool_list.stdout_lines }}"
+      register: zpool_status_results
+      changed_when: false
+      failed_when: false
+
+    - name: Identify ZFS pools using GRAID devices
+      ansible.builtin.set_fact:
+        zfs_pools_to_remove: "{{ zpool_status_results.results | selectattr('stdout', 'search', '/dev/gdg') | map(attribute='item') | list }}"
+
+    - name: Check if VDs are mounted
+      ansible.builtin.shell: "mount | grep '/dev/gdg'"
+      register: mount_output
+      changed_when: false
+      failed_when: false
+
+    - name: Check if VDs are used by LVM
+      ansible.builtin.command: "lvs --noheadings -o lv_path,devices"
+      register: lvs_output
+      changed_when: false
+      failed_when: false
+
+- name: Display configuration summary
+  ansible.builtin.debug:
+    msg:
+      - "VDs to delete: {{ (vd_list.Result | default([])) | length }}"
+      - "DGs to delete: {{ (dg_list.Result | default([])) | length }}"
+      - "PDs to delete: {{ (pd_list.Result | default([])) | length }}"
+      - "ZFS pools to remove: {{ zfs_pools_to_remove | default([]) | join(', ') }}"
+      - "Mounted VDs: {{ mount_output.stdout_lines | default([]) }}"
+      - "LVM VDs: {{ lvs_output.stdout_lines | default([]) | select('search', '/dev/gdg') | list }}"
+
+- name: Confirm RAID configuration deletion
+  ansible.builtin.pause:
+    prompt: |
+      You are about to delete the following RAID configuration:
+      - {{ (vd_list.Result | default([])) | length }} VDs
+      - {{ (dg_list.Result | default([])) | length }} DGs
+      - {{ (pd_list.Result | default([])) | length }} PDs
+      - ZFS pools: {{ zfs_pools_to_remove | default([]) | join(', ') }}
+      This action cannot be undone. Are you sure you want to proceed? (yes/no)
+  register: confirm_deletion
+  when: not auto_confirm | default(false) | bool
+
+- name: Proceed with RAID configuration deletion
+  when: auto_confirm | default(false) | bool or confirm_deletion.user_input | lower == 'yes'
+  block:
+    - name: Unmount all ZFS filesystems
+      ansible.builtin.command: "zfs unmount -a"
+      ignore_errors: yes
+
+    - name: Export ZFS pools using GRAID devices
+      ansible.builtin.command: "zpool export {{ item }}"
+      loop: "{{ zfs_pools_to_remove }}"
+      ignore_errors: yes
+
+    - name: Destroy ZFS pools using GRAID devices
+      ansible.builtin.command: "zpool destroy {{ item }}"
+      loop: "{{ zfs_pools_to_remove }}"
+      ignore_errors: yes
+
+    - name: Display mount output for debugging
+      ansible.builtin.debug:
+        var: mount_output
+
+    - name: Unmount VDs
+      ansible.builtin.command: "umount {{ item.split()[2] }}"
+      loop: "{{ mount_output.stdout_lines | default([]) }}"
+      when: "'/dev/gdg' in item"
+      ignore_errors: yes
+
+    - name: Remove LVM logical volumes using VDs
+      ansible.builtin.command: "lvremove -f {{ item.split()[0] }}"
+      loop: "{{ lvs_output.stdout_lines | default([]) }}"
+      when: "'/dev/gdg' in item"
+      ignore_errors: yes
+
+    - name: Unexport VDs
+      ansible.builtin.command: "graidctl unexport vd {{ item.DgId }} {{ item.VdId }} -a"
+      loop: "{{ vd_list.Result }}"
+      when: item.Exported
+      ignore_errors: yes
+
+    - name: Delete VDs
+      become: true
+      ansible.builtin.command: "graidctl del vd {{ item.DgId }} {{ item.VdId }} --confirm-to-delete"
+      loop: "{{ vd_list.Result | list }}"
+      register: delete_vd_results
+
+    - name: Display VD deletion errors
+      ansible.builtin.debug:
+        msg: "Failed to delete VD {{ item.item.DevPath }}: {{ item.stderr }}"
+      loop: "{{ delete_vd_results.results }}"
+      when: item.failed
+
+    - name: Delete DGs
+      become: true
+      ansible.builtin.command: "graidctl del dg {{ item.DgId }} --confirm-to-delete"
+      loop: "{{ dg_list.Result | list }}"
+      when: dg_list.Result is defined
+
+    - name: Delete PDs
+      become: true
+      ansible.builtin.command: "graidctl del pd {{ item.PdId }}"
+      loop: "{{ pd_list.Result | list }}"
+      when: pd_list.Result is defined
+
+- name: Display completion message
+  ansible.builtin.debug:
+    msg: "RAID configuration deletion {% if auto_confirm | default(false) | bool or confirm_deletion.user_input | lower == 'yes' %}completed{% else %}was cancelled{% endif %}."
