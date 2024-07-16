@@ -21,6 +21,7 @@
   ansible.builtin.stat:
     path: "{{ graid_path }}{{ pre_installer_url | basename }}"
   register: pre_installer_file
+  become: true
   tags:
     - downloads
 
@@ -61,6 +62,7 @@
   ansible.builtin.file:
     path: "{{ graid_path }}{{ pre_installer_url | basename }}"
     mode: "0755"
+  become: true
   when: wget_pre_installer_result is changed
 
 - name: Verify downloaded pre-installer
@@ -101,6 +103,7 @@
     path: "{{ graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ installer_urls }}"
+  become: true
   when: wget_installer_result is changed
 
 - name: Verify downloaded installer files

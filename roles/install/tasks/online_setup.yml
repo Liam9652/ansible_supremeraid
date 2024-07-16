@@ -5,6 +5,7 @@
   ansible.builtin.command: "bash {{ graid_path }}{{ pre_installer_url | basename }} --yes"
   async: 1800
   poll: 0
+  become: true
   register: preinstaller_job
 
 - name: Monitor pre-installer log file

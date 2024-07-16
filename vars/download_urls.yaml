@@ -6,19 +6,19 @@
 
 # This section is for the Linux OS
 # Download the latest pre-installer from the Graid Technology official website.
-pre_installer_url: "https://download.graidtech.com/driver/pre-install/graid-sr-pre-installer-1.6.0-113-x86_64.run"
+pre_installer_url: "http://172.17.2.29:8080/view/Installer/job/gpuraid-preinstaller/lastSuccessfulBuild/artifact/graid-preinstaller/output/graid-sr-pre-installer-1.6.0-114-x86_64.run"
 
 # Update the installer URLs based on your GPU model.
 # Example URLs are provided below. Replace with the correct URLs from the official website.
 installer_urls:
   # SR-1000
-  - "https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-000-247-202.run"
+  - "http://172.17.2.29:8080/view/Installer/job/gpuraid-1.6.x-installer/lastSuccessfulBuild/artifact/output/graid-sr-installer-1.6.0-000-247-203.run"
   # SR-1001
-  - "https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-001-247-202.run"
+  - "http://172.17.2.29:8080/view/Installer/job/gpuraid-1.6.x-installer/lastSuccessfulBuild/artifact/output/graid-sr-installer-1.6.0-001-247-203.run"
   # SR-1010
-  - "https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-010-247-202.run"
+  - "http://172.17.2.29:8080/view/Installer/job/gpuraid-1.6.x-installer/lastSuccessfulBuild/artifact/output/graid-sr-installer-1.6.0-010-247-203.run"
   # SR-1011
-  - "https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-011-247-202.run"
+  - "http://172.17.2.29:8080/view/Installer/job/gpuraid-1.6.x-installer/lastSuccessfulBuild/artifact/output/graid-sr-installer-1.6.0-011-247-203.run"
 
 # This is for the remote server doesn't have internet access
 

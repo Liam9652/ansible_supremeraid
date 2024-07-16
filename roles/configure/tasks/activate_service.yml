@@ -19,7 +19,10 @@
 - name: Check if all controllers have applied licenses
   ansible.builtin.set_fact:
     all_controllers_applied: >-
-      {{ parsed_license_state.Result.Controller.values() | map(attribute='LicenseState') | list | unique == ['APPLIED'] }}
+      {{ parsed_license_state.Result.Controller.values() |
+         map(attribute='LicenseState') |
+         list |
+         unique == ['APPLIED'] }}
 
 - name: Display license application status
   ansible.builtin.debug:
@@ -35,22 +38,26 @@
 
 - name: Get license key using serial number
   ansible.builtin.set_fact:
-    license_key: "{{ serial_output.stdout_lines[0].split(', ')[2] | get_license_key(configure_license_mapping_csv) }}"
-  change_when: not all_controllers_applied
+    license_key: >-
+      {{ serial_output.stdout_lines[0].split(', ')[2] |
+         get_license_key(configure_license_mapping_csv) }}
+  changed_when: not all_controllers_applied
 
 - name: Display license key
   ansible.builtin.debug:
     var: license_key
-  change_when: not all_controllers_applied
+  changed_when: not all_controllers_applied
 
 - name: Check if license key is valid
   ansible.builtin.set_fact:
-    is_license_key_valid: "{{ license_key is defined and license_key is string and license_key | length > 0 }}"
+    is_license_key_valid: >-
+      {{ license_key is defined and license_key is string and
+         license_key | length > 0 }}
 
 - name: Apply license key
   become: true
   ansible.builtin.command: "graidctl apply lic {{ license_key }}"
-  change_when:
+  changed_when:
     - is_license_key_valid
     - not all_controllers_applied
   register: license_application_result
@@ -68,12 +75,11 @@
   when:
     - not is_license_key_valid
     - not all_controllers_applied
-<<<<<<< HEAD:ansible_supremeraid/roles/configure/tasks/activate_service.yml
 
 - name: Ensure graid-mgr.service is enabled
   ansible.builtin.systemd:
     name: graid-mgr.service
-    enabled: yes
+    enabled: true
   notify: Restart graid-mgr service
 
 - name: Open firewall port for graid-mgr (Ubuntu)
@@ -86,9 +92,7 @@
 - name: Open firewall port for graid-mgr (RHEL/CentOS)
   ansible.posix.firewalld:
     port: "{{ configure_graid_mgr_port }}/tcp"
-    permanent: yes
+    permanent: true
     state: enabled
   notify: Reload firewall
   when: ansible_facts['os_family'] == "RedHat"
-=======
->>>>>>> itlinux/updates_july10:roles/configure/tasks/activate_service.yml
