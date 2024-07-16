@@ -8,6 +8,97 @@
   ansible.builtin.set_fact:
     existing_pd_list: "{{ (existing_pd_output.stdout | from_json).Result | map(attribute='PdId') | list }}"
 
+- name: Check if create attribute is Address
+  ansible.builtin.set_fact:
+    use_address_sorting: "{{ configure_pd_create_attribute == 'Address' }}"
+
+- name: Read graid_server.log
+  ansible.builtin.command: grep 'Read product LED config' /var/log/graid/graid_server.log
+  register: led_config_log
+  changed_when: false
+  when: use_address_sorting
+
+- name: Extract LED config file path
+  ansible.builtin.set_fact:
+    led_config_path: "{{ led_config_log.stdout | regex_search('/usr/share/graid/led_conf/.*\\.yaml') }}"
+  when: use_address_sorting and led_config_log.stdout != ""
+
+- name: Read LED config file
+  ansible.builtin.slurp:
+    src: "{{ led_config_path }}"
+  register: led_config_content
+  when: use_address_sorting and led_config_path is defined
+
+- name: Parse LED config YAML
+  ansible.builtin.set_fact:
+    led_config: "{{ led_config_content['content'] | b64decode | from_yaml }}"
+  when: use_address_sorting and led_config_content is defined
+
+- name: Extract led_bdf list
+  ansible.builtin.set_fact:
+    led_bdf_list: "{{ led_config.led_bdf }}"
+  when: use_address_sorting and led_config is defined
+
+- name: Get root port BDF for each local NVMe device
+  ansible.builtin.command: "lspci -s {{ item.Address }} -PP"
+  register: lspci_results
+  loop: "{{ filtered_devices | selectattr('Address', 'match', '^[0-9a-fA-F:]+$') | list }}"
+  when: use_address_sorting
+
+- name: Map devices to root port BDF
+  ansible.builtin.set_fact:
+    device_to_root_port: >-
+      {% set mapping = {} %}
+      {% for item in lspci_results.results %}
+        {% set device_bdf = item.item.Address %}
+        {% set root_port_bdf = item.stdout.split('/')[0] | replace(':', '') | replace('.', '') | lower %}
+        {% set _ = mapping.update({device_bdf: root_port_bdf}) %}
+      {% endfor %}
+      {{ mapping }}
+  when: use_address_sorting
+
+- name: Sort devices
+  ansible.builtin.set_fact:
+    sorted_devices: >-
+      {% set remote_nvme = [] %}
+      {% set local_nvme = [] %}
+      {% for device in filtered_devices %}
+        {% if device.Address.startswith('traddr=') %}
+          {% set _ = remote_nvme.append(device) %}
+        {% else %}
+          {% set _ = local_nvme.append(device) %}
+        {% endif %}
+      {% endfor %}
+      {% set sorted_remote_nvme = (remote_nvme | sort(attribute='Address')) %}
+      {% set sorted_local_nvme = [] %}
+      {% for bdf in led_bdf_list %}
+        {% set bdf_lower = bdf | replace('0x', '') | lower %}
+        {% for device in local_nvme %}
+          {% if device_to_root_port[device.Address] == bdf_lower %}
+            {% set _ = sorted_local_nvme.append(device) %}
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+      {{ sorted_remote_nvme + sorted_local_nvme }}
+  when: use_address_sorting and led_bdf_list is defined
+
+- name: Use default sorting if not using Address
+  ansible.builtin.set_fact:
+    sorted_devices: "{{ filtered_devices | sort(attribute=configure_pd_sorting) }}"
+  when: not use_address_sorting
+
+- name: Debug - Show sorted devices
+  ansible.builtin.debug:
+    var: sorted_devices
+
+- name: Create physical drives
+  become: true
+  ansible.builtin.command: "graidctl create pd {{ item[configure_pd_create_attribute] }}"
+  loop: "{{ sorted_devices }}"
+  register: create_pd_results
+  when: item[configure_pd_create_attribute] is defined
+
+
 - name: Create physical drives
   become: true
   ansible.builtin.command: "graidctl create pd {{ item[configure_pd_create_attribute] }}"
