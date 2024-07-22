@@ -10,93 +10,257 @@
     configure_dg_foreground_init: "{{ configure_dg_foreground_init | default(false) }}"
     configure_vd_counts: "{{ configure_vd_counts | default(1) | int }}"
 
-- name: Validate PD attributes
-  ansible.builtin.assert:
-    that:
-      - configure_pd_sorting in valid_pd_attributes
-      - configure_pd_create_attribute in valid_pd_attributes
-    fail_msg: >
-      Invalid attributes specified. 
-      Sorting attribute: '{{ configure_pd_sorting }}', 
-      Create attribute: '{{ configure_pd_create_attribute }}'. 
-      Valid options are: {{ valid_pd_attributes | join(', ') }}
+- name: Prompt user for drives device creation method
+  ansible.builtin.pause:
+    prompt: |
+      How would you like to create PDs for NVMe devices?
+      1. By model name (you will be prompted to enter the model name)
+      2. Use value from vars/main.yml ({{ configure_device_model_name }})
+      3. All devices
+      Enter your choice (1, 2, or 3):
+  register: user_choice
+  run_once: true
 
-- name: Validate RAID type
-  ansible.builtin.assert:
-    that:
-      - configure_raid_type in valid_raid_type
-    fail_msg: "Invalid RAID type: {{ configure_raid_type }}. Valid options are: {{ valid_raid_type | join(', ') }}"
+# - name: Set selected model
+#   ansible.builtin.set_fact:
+#     selected_model: >-
+#       {% if model_input.user_input == 1 %}
+#         {{ model_input.user_input | trim }}
+#       {% elif model_input.user_input == 2 %}
+#         {{ configure_device_model_name }}
+#       {% elif model_input.user_input == 3 %}
+#         {{ model_input.user_input | default('') | trim }}
+#       {% else %}
+#         {{ configure_device_model_name }}
+#       {% endif %}
 
-- name: Validate DG speed attributes
-  ansible.builtin.assert:
-    that:
-      - configure_dg_rebuild_speed in valid_dg_speed_attributes
-      - configure_dg_init_speed in valid_dg_speed_attributes
-      - configure_dg_cc_speed in valid_dg_speed_attributes
-      - configure_dg_resync_speed in valid_dg_speed_attributes
-    fail_msg: "Invalid speed setting. Valid options are: {{ valid_dg_speed_attributes | join(', ') }}"
+# - name: Display selected model
+#   ansible.builtin.debug:
+#     var: selected_model
 
-- name: Validate configure_vd_counts
-  ansible.builtin.assert:
-    that:
-      - configure_vd_counts | int > 0
-    fail_msg: "configure_vd_counts must be a positive integer"
+# - name: Filter devices based on selected model and creation method
+#   ansible.builtin.set_fact:
+#     filtered_devices: >-
+#       {% if creation_method == 3 %}
+#         {{ all_devices }}
+#       {% elif creation_method == 2 %}
+#         {{ all_devices | selectattr('Model', 'equalto', configure_device_model_name) | list }}
+#       {% else %}
+#         {{ all_devices | selectattr('Model', 'equalto', selected_model) | list }}
+#       {% endif %}
 
-- name: Query nvme devices
-  become: true
-  ansible.builtin.command: "graidctl ls nd --format=json"
-  register: graidctl_ls_nd_output
-
-- name: Parse JSON output for devices
+- name: Set creation method based on user input or default
   ansible.builtin.set_fact:
-    parsed_output: "{{ graidctl_ls_nd_output.stdout | from_json }}"
+    creation_method: >-
+      {% if user_choice.user_input | trim == '1' %}
+        {{ user_choice.user_input | trim }}
+      {% elif user_choice.user_input | trim == '2' or user_choice.user_input | trim == '' %}
+        {{ configure_device_model_name }}
+      {% elif user_choice.user_input | trim == '3' %}
+        {{ user_choice.user_input  | trim }}
+      {% else %}
+        {{ configure_device_model_name }}
+      {% endif %}
 
-- name: Filter devices by Model
+- name: Query NVMe devices
+  ansible.builtin.command: graidctl ls nd --format json
+  register: nvme_devices_output
+  ignore_errors: true
+  become: true
+
+- name: Query SCSI devices
+  ansible.builtin.command: graidctl ls sd --format json
+  register: scsi_devices_output
+  ignore_errors: true
+  become: true
+
+- name: Parse device data and display models
+  ansible.builtin.set_fact:
+    nvme_devices: "{{ (nvme_devices_output.stdout | from_json).Result }}"
+    scsi_devices: "{{ (scsi_devices_output.stdout | from_json).Result }}"
+    all_devices: "{{ {'NVMe': (nvme_devices_output.stdout | from_json).Result, 'SCSI': (scsi_devices_output.stdout | from_json).Result} }}"
+    nvme_models: "{{ (nvme_devices_output.stdout | from_json).Result | map(attribute='Model') | unique | list }}"
+    scsi_models: "{{ (scsi_devices_output.stdout | from_json).Result | map(attribute='Model') | unique | list }}"
+
+- name: Display all available models
+  ansible.builtin.debug:
+    msg: "All available models: NVMe: {{ nvme_models | join(', ') }}, SCSI: {{ scsi_models | join(', ') }}"
+
+- name: Prompt for model name if by_model_input
+  ansible.builtin.pause:
+    prompt: "Enter the model name of devices you want to create PDs for:"
+  register: model_input
+  when: creation_method | int == 1
+  run_once: true
+
+- name: Display selected model
+  ansible.builtin.debug:
+    var: model_input
+
+- name: Filter devices based on selected model
   ansible.builtin.set_fact:
     filtered_devices: >-
-      {{ parsed_output.Result | 
-         selectattr('Model', 'eq', configure_device_model_name) | 
-         sort(attribute=configure_pd_sorting) | 
-         list }}
+      {% if user_choice.user_input | int == 3 %}
+        {{ all_devices }}
+      {% else %}
+        {% set filtered = {} %}
+        {% for device_type, devices in all_devices.items() %}
+          {% set filtered_type = devices | selectattr('Model', 'equalto', model_input.user_input) | list %}
+          {% if filtered_type %}
+            {% set _ = filtered.update({device_type: filtered_type}) %}
+          {% endif %}
+        {% endfor %}
+        {{ filtered }}
+      {% endif %}
 
-- name: Debug - Show filtered devices
+# - name: Display filtered devices
+#   ansible.builtin.set_fact:
+#     selected_devices: filtered_devices
+
+# - name: Extract devices based on selection
+#   ansible.builtin.set_fact:
+#     selected_devices: >-
+#       {% if selected_model == 'all' %}
+#         {{ (filtered_devices.NVMe | default([])) + (filtered_devices.SCSI | default([])) }}
+#       {% elif 'NVMe' in filtered_devices and filtered_devices.NVMe | selectattr('Model', 'equalto', selected_model) | list | length > 0 %}
+#         {{ filtered_devices.NVMe | selectattr('Model', 'equalto', selected_model) | list }}
+#       {% elif 'SCSI' in filtered_devices and filtered_devices.SCSI | selectattr('Model', 'equalto', selected_model) | list | length > 0 %}
+#         {{ filtered_devices.SCSI | selectattr('Model', 'equalto', selected_model) | list }}
+#       {% else %}
+#         []
+#       {% endif %}
+
+- name: Display filtered devices
   ansible.builtin.debug:
     var: filtered_devices
 
-- name: Set configure_device_count if not provided
+- name: Parse filtered devices string
   ansible.builtin.set_fact:
-    configure_device_count: "{{ filtered_devices | length }}"
-  when: configure_device_count == '' or configure_device_count is not defined
+    parsed_filtered_devices: "{{ filtered_devices | regex_replace('^\\s+', '') | regex_replace('\\s+$', '') | regex_replace('\\n', '') | from_yaml }}"
 
-- name: Show configure_device_count
+- name: Display parsed filtered devices
   ansible.builtin.debug:
-    var: configure_device_count
+    var: parsed_filtered_devices
 
-- name: Calculate if there are enough devices
+- name: Combine NVMe and SCSI devices
   ansible.builtin.set_fact:
-    has_enough_devices: "{{ (filtered_devices | length) >= (configure_device_count | int) }}"
+    combined_devices: "{{ parsed_filtered_devices.NVMe | default([]) + parsed_filtered_devices.SCSI | default([]) }}"
 
-- name: Check if there are enough devices
-  ansible.builtin.assert:
-    that: has_enough_devices
-    fail_msg: "Not enough devices found. Required: {{ configure_device_count | int }}, Found: {{ filtered_devices | length }}"
+- name: Display combined devices
+  ansible.builtin.debug:
+    var: combined_devices
 
-- name: Limit to specified device count
+- name: Get LED configuration
+  ansible.builtin.command: graidctl desc conf led --format json
+  register: led_config_output
+  changed_when: false
+  failed_when: false
+
+- name: Parse LED configuration
   ansible.builtin.set_fact:
-    filtered_devices: "{{ filtered_devices[:configure_device_count | int ] }}"
+    led_config: "{{ led_config_output.stdout | from_json }}"
+  when: led_config_output.rc == 0
 
-- name: Calculate total capacity of filtered devices
+- name: Get physical slot for each device
+  ansible.builtin.command: "lspci -s {{ item.Address }} -nnvvv -d ::0108 -D -PP"
+  loop: "{{ combined_devices }}"
+  register: physical_slot_output
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - combined_devices | length > 0
+    - scsi_devices is not defined or scsi_devices | length == 0
+
+- name: Display raw physical slot output
+  ansible.builtin.debug:
+    var: physical_slot_output
+  when: physical_slot_output is defined
+
+- name: Parse physical slot information
   ansible.builtin.set_fact:
-    total_capacity: "{{ filtered_devices | sum(attribute='Capacity') }}"
+    physical_slots: >-
+      {% set result = {} %}
+      {% for item in physical_slot_output.results %}
+        {% if item.stdout is defined %}
+          {% set slot_match = item.stdout | regex_search('Physical Slot:\s*([^\n]*)', '\\1') %}
+          {% if slot_match %}
+            {% set _ = result.update({item.item.Address: slot_match[0] | default('')}) %}
+          {% else %}
+            {% set _ = result.update({item.item.Address: 'N/A'}) %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {{ result }}
+  when:
+    - physical_slot_output is defined
+    - physical_slot_output.results is defined
+    - physical_slot_output.results | length > 0
 
-- name: Debug output of prepared devices
+- name: Clean and convert physical_slots to JSON
+  ansible.builtin.set_fact:
+    physical_slots_json: "{{ physical_slots | regex_replace('^\\s+|\\s+$', '') | from_yaml | to_json }}"
+
+- name: Convert led_config to JSON
+  ansible.builtin.set_fact:
+    led_config_json: "{{ led_config | to_json }}"
+
+- name: Display converted parameters
   ansible.builtin.debug:
     msg:
-      - "Prepared devices: {{ filtered_devices | map(attribute='DevPath') | list }}"
-      - "Total capacity: {{ total_capacity }}"
-      - "RAID type: {{ configure_raid_type }}"
-      - "Create by NUMA: {{ configure_create_by_numa }}"
-      - "Create by Socket: {{ configure_create_by_socket }}"
-      - "Foreground init: {{ configure_dg_foreground_init }}"
-      - "VD size: {{ configure_vd_size if configure_vd_size | length > 0 else 'Full capacity' }}"
-      - "VD count: {{ configure_vd_counts }}"
+      - "physical_slots_json type: {{ physical_slots_json | type_debug }}"
+      - "physical_slots_json: {{ physical_slots_json }}"
+      - "led_config_json type: {{ led_config_json | type_debug }}"
+      - "led_config_json: {{ led_config_json }}"
+
+- name: Sort devices
+  ansible.builtin.set_fact:
+    sorted_devices: >-
+      {% if combined_devices | length > 0 %}
+        {% if configure_create_by_numa | bool %}
+          {{ combined_devices | sort_devices('Numa', create_by_numa=true, led_config=led_config_json, physical_slots=physical_slots_json) }}
+        {% elif configure_pd_sorting == 'Address' %}
+          {{ combined_devices | sort_devices('Address', led_config=led_config_json, physical_slots=physical_slots_json) }}
+        {% elif configure_pd_sorting == 'DevPath' %}
+          {{ combined_devices | sort_devices('DevPath', led_config=led_config_json, physical_slots=physical_slots_json) }}
+        {% elif configure_pd_sorting == 'NQN' %}
+          {{ combined_devices | sort_devices('NQN', led_config=led_config_json, physical_slots=physical_slots_json) }}
+        {% else %}
+          {{ combined_devices | sort_devices(configure_pd_sorting, led_config=led_config_json, physical_slots=physical_slots_json) }}
+        {% endif %}
+      {% else %}
+        []
+      {% endif %}
+
+- name: Clean and parse sorted devices
+  ansible.builtin.set_fact:
+    cleaned_devices: "{{ sorted_devices | regex_replace('^\\s+|\\s+$', '') | regex_replace('\\n', '') }}"
+
+- name: Display cleaned_devices
+  ansible.builtin.debug:
+    var: cleaned_devices
+
+- name: Extract NQN or WWID values
+  ansible.builtin.set_fact:
+    nqn_list: "{{ lookup('template', 'nqn_list.j2')  }}"
+
+- name: Display NQN list
+  ansible.builtin.debug:
+    var: nqn_list
+
+- name: Display configure_pd_create_attribute
+  ansible.builtin.debug:
+    var: configure_pd_create_attribute
+
+- name: Validate configurations
+  ansible.builtin.include_tasks: validate_configs.yml
+
+- name: Save prepared devices to file
+  ansible.builtin.copy:
+    content: "{{ nqn_list | to_nice_json }}"
+    dest: "/tmp/prepared_devices.json"
+  become: true
+
+- name: Display saved content
+  ansible.builtin.debug:
+    msg: "Content saved to /tmp/prepared_devices.json: {{ nqn_list | to_nice_json }}"

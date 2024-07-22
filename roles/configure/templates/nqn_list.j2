@@ -1,0 +1,12 @@
+[
+{% for device in cleaned_devices %}
+  {% if 'NQN' in device %}
+    "{{ device.NQN }}"
+  {% elif 'WWID' in device %}
+    "{{ device.DevPath }}"
+  {% else %}
+    "N/A"
+  {% endif %}
+  {% if not loop.last %},{% endif %}
+{% endfor %}
+]
