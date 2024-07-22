@@ -5,6 +5,9 @@
 - name: Set default values and query devices
   ansible.builtin.import_tasks: create/prepare_devices.yml
 
+- name: validate configs
+  ansible.builtin.import_tasks: create/validate_configs.yml
+
 - name: Create physical drives
   ansible.builtin.import_tasks: create/create_physical_drives.yml
 

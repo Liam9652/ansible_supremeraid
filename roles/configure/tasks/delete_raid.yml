@@ -31,6 +31,7 @@
       ansible.builtin.command: "zpool list -H -o name"
       register: zpool_list
       changed_when: false
+      become: true
       failed_when: false
 
     - name: Get ZFS pool status for each pool
@@ -38,6 +39,7 @@
       loop: "{{ zpool_list.stdout_lines }}"
       register: zpool_status_results
       changed_when: false
+      become: true
       failed_when: false
 
     - name: Identify ZFS pools using GRAID devices
@@ -45,14 +47,16 @@
         zfs_pools_to_remove: "{{ zpool_status_results.results | selectattr('stdout', 'search', '/dev/gdg') | map(attribute='item') | list }}"
 
     - name: Check if VDs are mounted
-      ansible.builtin.shell: "mount | grep '/dev/gdg'"
+      ansible.builtin.command: "mount | grep '/dev/gdg'"
       register: mount_output
+      become: true
       changed_when: false
       failed_when: false
 
     - name: Check if VDs are used by LVM
       ansible.builtin.command: "lvs --noheadings -o lv_path,devices"
       register: lvs_output
+      become: true
       changed_when: false
       failed_when: false
 
@@ -77,23 +81,28 @@
       This action cannot be undone. Are you sure you want to proceed? (yes/no)
   register: confirm_deletion
   when: not auto_confirm | default(false) | bool
+  run_once: true
+  # delegate_to: localhost
 
 - name: Proceed with RAID configuration deletion
   when: auto_confirm | default(false) | bool or confirm_deletion.user_input | lower == 'yes'
   block:
     - name: Unmount all ZFS filesystems
       ansible.builtin.command: "zfs unmount -a"
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Export ZFS pools using GRAID devices
       ansible.builtin.command: "zpool export {{ item }}"
       loop: "{{ zfs_pools_to_remove }}"
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Destroy ZFS pools using GRAID devices
       ansible.builtin.command: "zpool destroy {{ item }}"
       loop: "{{ zfs_pools_to_remove }}"
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Display mount output for debugging
       ansible.builtin.debug:
@@ -103,19 +112,22 @@
       ansible.builtin.command: "umount {{ item.split()[2] }}"
       loop: "{{ mount_output.stdout_lines | default([]) }}"
       when: "'/dev/gdg' in item"
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Remove LVM logical volumes using VDs
       ansible.builtin.command: "lvremove -f {{ item.split()[0] }}"
       loop: "{{ lvs_output.stdout_lines | default([]) }}"
       when: "'/dev/gdg' in item"
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Unexport VDs
       ansible.builtin.command: "graidctl unexport vd {{ item.DgId }} {{ item.VdId }} -a"
       loop: "{{ vd_list.Result }}"
       when: item.Exported
-      ignore_errors: yes
+      become: true
+      ignore_errors: true
 
     - name: Delete VDs
       become: true

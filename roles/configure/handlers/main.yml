@@ -4,7 +4,9 @@
   ansible.builtin.systemd:
     name: graid-mgr.service
     state: restarted
+  become: true
 
 - name: Reload firewall
   ansible.builtin.command: firewall-cmd --reload
+  become: true
   when: ansible_facts['os_family'] == "RedHat"
