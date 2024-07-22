@@ -1,0 +1,11 @@
+# group_vars/default.yml
+
+# General variables
+configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
+configure_device_model_name: "INTEL SSDPF2KX038TZ"
+configure_graid_mgr_port: 50060
+
+# Installation related variables
+graid_path: "{{ ansible_env.HOME }}/graid_package/"
+install_mode: "offline"
+remote_os: "linux"

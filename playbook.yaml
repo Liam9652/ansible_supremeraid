@@ -3,9 +3,9 @@
   hosts: supremraid_servers
   gather_facts: true
 
-  vars_files:
-    - vars/supremeraid_vars.yaml
-    - vars/download_urls.yaml
+  # vars_files:
+  #   - vars/supremeraid_vars.yaml
+  #   - vars/download_urls.yaml
 
   pre_tasks:
     - name: Gather OS Distribution Facts
@@ -16,13 +16,20 @@
 
     - name: Test reachability to 8.8.8.8
       ansible.builtin.command: ping -c 2 8.8.8.8
-      ignore_errors: yes
+      ignore_errors: true
       register: ping_result
       changed_when: false
       tags:
         - always
 
-
+    - name: Debug variables
+      debug:
+        msg:
+          - "graid_path: {{ graid_path | default('undefined') }}"
+          - "linux: {{ linux | default('undefined') }}"
+          - "linux.pre_installer_url: {{ linux.pre_installer_url | default('undefined') }}"
+      tags:
+        - always
     # - name: Test reachability to 8.8.8.8
     #   ansible.netcommon.net_ping:
     #     dest: 8.8.8.8
@@ -54,19 +61,20 @@
     - name: Run prepare tasks
       ansible.builtin.import_role:
         name: prepare
-      tags: [prepare]
+      tags:
+        - prepare
 
-    - name: Run install tasks
+    - name: Run Driver_setup_install tasks
       ansible.builtin.import_role:
         name: install
       tags:
         - install
-        - downloads
 
     - name: Run configure tasks
       ansible.builtin.import_role:
         name: configure
-      tags: [configure]
+      tags:
+        - configure
 
   post_tasks:
     - name: Fail if unsupported OS
