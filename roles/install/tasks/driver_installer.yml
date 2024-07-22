@@ -21,6 +21,7 @@
     paths: "{{ graid_path }}"
     patterns: "{{ installer_filename }}"
   register: found_files
+  become: true
 
 - name: Debug found_files filename
   ansible.builtin.debug:
@@ -36,13 +37,15 @@
   register: graidctl_output
   become: true
   ignore_errors: true
-  tags: [update]
+  tags:
+    - update
 
 - name: remove and backup the old_installation log
   ansible.builtin.command: mv /var/log/graid-installer/installer.log /var/log/graid-installer/installer.log.bak
   become: true
   when: graidctl_output.rc == 0
-  tags: [update]
+  tags:
+    - update
 
 - name: Set installer path
   ansible.builtin.set_fact:
@@ -58,6 +61,7 @@
   ansible.builtin.shell: |
     tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
   register: log_content
+  become: true
   until: log_content.rc == 0
   retries: 180
   delay: 10

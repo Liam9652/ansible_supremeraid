@@ -3,6 +3,7 @@
 - name: Query serial number
   ansible.builtin.command: nvidia-smi --query-gpu=index,name,serial --format=csv,noheader
   register: serial_output
+  become: true
   ignore_errors: true
   failed_when: serial_output.rc != 0
 

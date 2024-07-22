@@ -15,6 +15,7 @@
 
 - name: Get NUMA node information
   ansible.builtin.command: lscpu -p=NODE
+  become: true
   register: numa_info
 
 - name: Set NUMA nodes fact
@@ -23,6 +24,7 @@
 
 - name: Get CPU socket information
   ansible.builtin.command: lscpu -p=SOCKET
+  become: true
   register: socket_info
 
 - name: Set OS  information

@@ -1,0 +1,121 @@
+---
+- name: Set default values for variables
+  ansible.builtin.set_fact:
+    configure_raid_type: "{{ configure_raid_type | default('raid5') }}"
+    configure_device_model_name: "{{ configure_device_model_name | default('QEMU NVMe Ctrl') }}"
+    configure_device_count: "{{ configure_device_count | default('') }}"
+    configure_vd_size: "{{ configure_vd_size | default('') }}"
+    configure_create_by_numa: "{{ configure_create_by_numa | default(false) }}"
+    configure_create_by_socket: "{{ configure_create_by_socket | default('') }}"
+    configure_dg_foreground_init: "{{ configure_dg_foreground_init | default(false) }}"
+    configure_vd_counts: "{{ configure_vd_counts | default(1) | int }}"
+
+- name: Query NVMe devices
+  ansible.builtin.command: graidctl ls nd --format json
+  register: nvme_devices_output
+  ignore_errors: true
+  become: true
+
+- name: Query SCSI devices
+  ansible.builtin.command: graidctl ls sd --format json
+  register: scsi_devices_output
+  ignore_errors: true
+  become: true
+
+- name: Parse device data and display models
+  ansible.builtin.set_fact:
+    nvme_devices: "{{ (nvme_devices_output.stdout | from_json).Result }}"
+    scsi_devices: "{{ (scsi_devices_output.stdout | from_json).Result }}"
+    all_devices: "{{ {'NVMe': (nvme_devices_output.stdout | from_json).Result, 'SCSI': (scsi_devices_output.stdout | from_json).Result} }}"
+    nvme_models: "{{ (nvme_devices_output.stdout | from_json).Result | map(attribute='Model') | unique | list }}"
+    scsi_models: "{{ (scsi_devices_output.stdout | from_json).Result | map(attribute='Model') | unique | list }}"
+
+- name: Gather all models from all hosts
+  ansible.builtin.set_fact:
+    all_nvme_models: "{{ all_nvme_models | default([]) + nvme_models }}"
+    all_scsi_models: "{{ all_scsi_models | default([]) + scsi_models }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Display all available models
+  ansible.builtin.debug:
+    msg: 
+      - "All available NVMe models across all hosts: {{ all_nvme_models | unique | join(', ') }}"
+      - "All available SCSI models across all hosts: {{ all_scsi_models | unique | join(', ') }}"
+  run_once: true
+
+- name: Prompt user for drives device creation method
+  ansible.builtin.pause:
+    prompt: |
+      How would you like to create PDs for devices?
+      1. By model name (you will be prompted to enter the model name)
+      2. Use value from vars/main.yml ({{ configure_device_model_name }})
+      3. All devices
+      4. Custom selection for each host
+      Enter your choice (1, 2, 3, or 4):
+  register: user_choice
+  run_once: true
+  delegate_to: localhost
+
+- name: Set creation method based on user input
+  ansible.builtin.set_fact:
+    creation_method: "{{ user_choice.user_input | default('2') | trim }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Set creation method globally
+  ansible.builtin.set_fact:
+    creation_method: "{{ hostvars['localhost']['creation_method'] }}"
+
+- name: Prompt for model name if by_model_input
+  ansible.builtin.pause:
+    prompt: "Enter the model name of devices you want to create PDs for (available NVMe models: {{ all_nvme_models | unique | join(', ') }}, available SCSI models: {{ all_scsi_models | unique | join(', ') }}):"
+  register: model_input
+  when: creation_method == '1'
+  run_once: true
+  delegate_to: localhost
+
+- name: Set device model name
+  ansible.builtin.set_fact:
+    device_model_name: >-
+      {% if creation_method == '1' %}
+        {{ model_input.user_input | default('') | trim }}
+      {% elif creation_method == '2' %}
+        {{ configure_device_model_name }}
+      {% elif creation_method == '3' %}
+        all
+      {% else %}
+        custom
+      {% endif %}
+  run_once: true
+  delegate_to: localhost
+
+- name: Set device model name globally
+  ansible.builtin.set_fact:
+    device_model_name: "{{ hostvars['localhost']['device_model_name'] }}"
+
+- name: Custom selection for each host
+  block:
+    - name: Prompt for custom selection
+      ansible.builtin.pause:
+        prompt: "Enter the model names or 'all' for host {{ inventory_hostname }} (available NVMe models: {{ nvme_models | join(', ') }}, available SCSI models: {{ scsi_models | join(', ') }}):"
+      register: host_custom_input
+
+    - name: Set custom device selection for host
+      ansible.builtin.set_fact:
+        host_device_selection: "{{ host_custom_input.user_input | default('all') | trim }}"
+  when: creation_method == '4'
+
+- name: Debug variables
+  ansible.builtin.debug:
+    msg:
+      - "Host: {{ inventory_hostname }}"
+      - "creation_method: {{ creation_method | default('undefined') }}"
+      - "device_model_name: {{ device_model_name | default('undefined') }}"
+      - "host_device_selection: {{ host_device_selection | default('undefined') }}"
+
+- name: Share user input across all hosts
+  ansible.builtin.set_fact:
+    shared_creation_method: "{{ creation_method }}"
+    shared_device_model_name: "{{ device_model_name }}"
+    host_specific_selection: "{{ host_device_selection | default(omit) }}"

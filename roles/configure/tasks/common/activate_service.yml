@@ -6,6 +6,7 @@
 - name: Check current license state
   ansible.builtin.command: graidctl desc lic --format json
   register: current_license_state
+  become: true
   changed_when: false
 
 - name: Parse current license state
@@ -80,6 +81,7 @@
   ansible.builtin.systemd:
     name: graid-mgr.service
     enabled: true
+  become: true
   notify: Restart graid-mgr service
 
 - name: Open firewall port for graid-mgr (Ubuntu)
@@ -87,6 +89,7 @@
     rule: allow
     port: "{{ configure_graid_mgr_port }}"
     proto: tcp
+  become: true
   when: ansible_facts['os_family'] == "Debian"
 
 - name: Open firewall port for graid-mgr (RHEL/CentOS)
@@ -95,4 +98,5 @@
     permanent: true
     state: enabled
   notify: Reload firewall
+  become: true
   when: ansible_facts['os_family'] == "RedHat"
