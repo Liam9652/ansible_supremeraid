@@ -111,7 +111,12 @@ def update_yaml_file(linux_info, windows_info):
         for name, link in linux_info['dependencies'].items():
             if "Pre-installer" in name:
                 data['linux']['pre_installer_url'] = link
-                break
+                
+            if "NVIDIA Driver" in name:
+                data['linux']['nv_url'] = link
+                # print('update',link)
+            
+        
         data['linux']['installer_urls'] = list(linux_info['driver_package'].values())
 
     # Update Windows section
@@ -122,6 +127,7 @@ def update_yaml_file(linux_info, windows_info):
     # Write back to YAML file
     try:
         with open(yaml_file_path, 'w') as file:
+            # print(data)
             yaml.dump(data, file)
         print(f"YAML file successfully updated: {yaml_file_path}")
     except Exception as e:
