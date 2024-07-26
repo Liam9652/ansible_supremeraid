@@ -1,49 +1,198 @@
 ---
 # tasks file for online_install
 
-- name: Run SupremeRAID pre-installer in online mode
-  ansible.builtin.command: "bash {{ graid_path }}{{ linux.pre_installer_url | basename }} --yes"
-  async: 1800
-  poll: 0
+- name: Include query_serial role
+  ansible.builtin.include_tasks: ../prepare/tasks/check_nv_driver.yml
+
+- name: Display final status
+  ansible.builtin.debug:
+    msg:
+      - "NVIDIA driver status: {{ nvidia_driver_status }}"
+      - "NVIDIA setup required: {{ nvidia_setup_required }}"
   become: true
-  register: preinstaller_job
 
-- name: Monitor pre-installer log file
-  ansible.builtin.command: |
-    tail -n 10 -f /var/log/graid-preinstaller/preinstaller.log | grep -m 1 "\\[INFO\\] Selected 'Yes' for reboot system\\."
-  register: log_content
-  until: log_content.rc == 0
+- name: Determine installation type
+  ansible.builtin.set_fact:
+    installation_type: >-
+      {% if nvidia_driver_status | int == 1 and graidctl_check.rc != 0 %}
+        fresh_install
+      {% elif nvidia_driver_status | int == 1 and graidctl_check.rc == 0 %}
+        driver_only_install
+      {% elif nvidia_driver_status | int in [2, 3] %}
+        driver_mismatch
+      {% elif nvidia_driver_status | int == 0 and graidctl_check.rc == 0 %}
+        no_action_required
+      {% else %}
+        unknown
+      {% endif %}
+
+- name: Determine installation type
+  ansible.builtin.set_fact:
+    installation_type_int: >-
+      {% if nvidia_driver_status | int == 1 and graidctl_check.rc != 0 %}
+        0
+      {% elif nvidia_driver_status | int == 1 and graidctl_check.rc == 0 %}
+        2
+      {% elif nvidia_driver_status | int in [2, 3] %}
+        1
+      {% elif nvidia_driver_status | int == 0 and graidctl_check.rc == 0 %}
+        3
+      {% else %}
+        4
+      {% endif %}
+
+# 0: fresh_install
+# 1: driver_mismatch
+# 2: driver_only_install
+# 3: no_action_required
+# 4: unknown
+
+- name: Display installation type
+  ansible.builtin.debug:
+    msg: "Installation type determined: {{ installation_type }}"
+
+- name: Run SupremeRAID pre-installer in online mode if needed
+  block:
+    - name: Check if the pre-installer log file exists
+      ansible.builtin.stat:
+        path: "/var/log/graid-preinstaller/preinstaller.log"
+      register: preinstaller_log_stats
+
+    - name: Remove and backup the old_pre_installer log
+      ansible.builtin.command: mv /var/log/graid-preinstaller/preinstaller.log /var/log/graid-preinstaller/preinstaller.log.bak
+      become: true
+      when: preinstaller_log_stats.stat.exists
+
+    - name: Run SupremeRAID pre-installer in online mode
+      ansible.builtin.command: "bash {{ graid_path }}{{ linux.pre_installer_url | basename }} --yes"
+      async: 1800
+      poll: 0
+      become: true
+      register: preinstaller_job
+
+    - name: Monitor pre-installer log file
+      ansible.builtin.command: |
+        tail -n 10 -f /var/log/graid-preinstaller/preinstaller.log | grep -m 1 "\\[INFO\\] Selected 'Yes' for reboot system\\."
+      register: log_content
+      until: log_content.rc == 0
+      become: true
+      retries: 180
+      delay: 10
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+
+  when: installation_type_int | int in [0, 1]
   become: true
-  retries: 180
-  delay: 10
-  changed_when: false
-  failed_when: false
-  ignore_unreachable: true
 
-- name: Clear host errors
-  ansible.builtin.meta: clear_host_errors
+- name: Install/Update nvidia driver
+  block:
+    - name: Stop graid_server
+      ansible.builtin.systemd:
+        name: graid.service
+        state: stopped
+      become: true
+      ignore_errors: true
 
-- name: Wait for the server to finish rebooting
-  ansible.builtin.wait_for_connection:
-    delay: 30
-    timeout: 300
+    - name: Unload module
+      community.general.modprobe:
+        name:
+          - graid_nvidia
+          - graid
+          - nvidia_uvm
+          - nvidia_drm
+          - nvidia_modeset
+          - nvidia
+        state: absent
 
-- name: Check network connectivity after pre-installer
-  ansible.builtin.ping:
-  register: ping_result_after_preinstaller
-  ignore_errors: true
+    - name: Check if the nvidia-installer log file exists
+      ansible.builtin.stat:
+        path: "/var/log/nvidia-installer.log"
+      register: nvidia_log_stats
 
-- name: Wait for SSH to come back
-  ansible.builtin.wait_for:
-    host: "{{ inventory_hostname }}"
-    port: 22
-    delay: 30
-    timeout: 1200
-    state: started
-  when: ping_result_after_preinstaller is failed
-  ignore_unreachable: true
+    - name: Remove and backup the old_pre_installer log
+      ansible.builtin.command: mv /var/log/nvidia-installer.log /var/log/nvidia-installer.log.bak
+      become: true
+      when: nvidia_log_stats.stat.exists
 
-- name: Pause to allow service to start or stop
-  ansible.builtin.pause:
-    seconds: 60
-  when: ping_result_after_preinstaller is failed
+    - name: Run nvidia driver script
+      ansible.builtin.command: "bash {{ graid_path }}{{ linux.nv_url | basename }} -s --no-systemd --no-opengl-files --no-nvidia-modprobe --dkms"
+      async: 1800
+      poll: 0
+      become: true
+      register: nv_driver_job
+
+    - name: Monitor for installation completion message in updating log
+      ansible.builtin.shell: |
+        tail -n 0 -f /var/log/nvidia-installer.log | while read line; do
+          if echo "$line" | grep -q "Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 (version: "; then
+            echo "Found installation completion message"
+            exit 0
+          fi
+        done
+      async: 600 # Run for up to 10 mins
+      poll: 0
+      register: monitor_job
+
+    - name: Debug
+      ansible.builtin.debug:
+        msg: "monitor_job: {{ monitor_job }}"
+
+    - name: Check monitoring job status
+      async_status:
+        jid: "{{ monitor_job.ansible_job_id }}"
+      register: job_result
+      until: job_result.finished
+      retries: 360 # Check every 10 seconds for up to 1 hour
+      delay: 10
+
+    - name: Reboot the system
+      ansible.builtin.reboot:
+        msg: "Rebooting after NVIDIA driver installation"
+        reboot_timeout: 600
+      when: job_result.finished and job_result.rc == 0
+  when: installation_type_int | int  == 2
+  become: true
+
+- name: Check connectivity after reboot
+  block:
+    - name: Clear host errors
+      ansible.builtin.meta: clear_host_errors
+
+    - name: Wait for the server to finish rebooting
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        timeout: 300
+
+    - name: Check network connectivity after setup
+      ansible.builtin.ping:
+      register: ping_result_after_preinstaller
+      ignore_errors: true
+
+    - name: Wait for SSH to come back
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 22
+        delay: 30
+        timeout: 1200
+        state: started
+      when: ping_result_after_preinstaller is failed
+      ignore_unreachable: true
+
+    - name: Pause to allow service to start or stop
+      ansible.builtin.pause:
+        seconds: 60
+      when: ping_result_after_preinstaller is failed
+
+  when: installation_type_int | int in [0, 1, 2]
+  become: true
+
+- name: No action required
+  ansible.builtin.debug:
+    msg: "NVIDIA driver and graidctl are already correctly installed. No action required."
+  when: installation_type_int | int  == 3
+
+- name: Unknown state
+  ansible.builtin.debug:
+    msg: "System is in an unknown state. Manual inspection may be required."
+  when: installation_type_int | int  == 4

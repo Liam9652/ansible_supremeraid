@@ -1,0 +1,280 @@
+---
+# tasks file for check_nv_driver
+- name: Check if DKMS is installed
+  ansible.builtin.package:
+    name: dkms
+    state: present
+  check_mode: true
+  register: dkms_check
+  ignore_errors: true
+  become: true
+
+- name: Check if graidctl is installed
+  ansible.builtin.command: graidctl version
+  register: graidctl_check
+  ignore_errors: true
+  become: true
+
+- name: Check NVIDIA driver installation (non-DKMS)
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_smi_check
+  ignore_errors: true
+  changed_when: false
+  become: true
+
+- name: Extract NVIDIA driver version from URL
+  ansible.builtin.set_fact:
+    nvidia_version: "{{ linux.nv_url | regex_search('/([\\d.]+)/') | regex_replace('/', '') }}"
+
+- name: Get installed NVIDIA driver version from DKMS
+  ansible.builtin.shell:
+    cmd: "dkms status | grep -E 'nvidia/|nvidia-srv/' | awk -F'/' '{print $1,$2}' | awk -F ',' '{print $1}'"
+  register: dkms_result
+  failed_when: false
+  changed_when: false
+
+- name: Set fact for NVIDIA driver status and version
+  ansible.builtin.set_fact:
+    dkms_nv_info: "{{ dkms_result.stdout_lines | map('split', ' ') | list }}"
+    nvidia_driver_installed: "{{ dkms_result.stdout | trim | length > 0 }}"
+
+- name: Set fact for dkms_nv_version
+  ansible.builtin.set_fact:
+    dkms_nv_version: "{{ dkms_nv_info[0][1] if dkms_nv_info else '' }}"
+
+- name: Display DKMS result
+  ansible.builtin.debug:
+    msg:
+      - "DKMS Result: {{ dkms_result }}"
+      - "Installed info: {{ dkms_nv_info }}"
+      - "Driver installed: {{ nvidia_driver_installed }}"
+      - "DKMS version: {{ dkms_nv_version }}"
+      - "graidctl Result: {{ graidctl_check.rc }}"
+
+- name: Compare NVIDIA versions
+  ansible.builtin.shell:
+    cmd: "printf '%s\n%s' '{{ dkms_nv_version }}' '{{ nvidia_version }}' | sort -V | head -n1"
+  register: version_compare_result
+  changed_when: false
+  when: dkms_nv_version != ''
+
+- name: Display version comparison result
+  ansible.builtin.debug:
+    msg:
+      - "Version comparison result: {{ version_compare_result }}"
+      - "Installed version: {{ dkms_nv_version }}"
+      - "Required version: {{ nvidia_version }}"
+
+- name: Fail if installed version is lower or empty
+  ansible.builtin.fail:
+    msg: "Installed NVIDIA driver version ({{ dkms_nv_version | default('Not found') }}) is lower than or not equal to the required version ({{ nvidia_version }})"
+  when: >
+    dkms_nv_version | default('') | trim == '' or 
+    (version_compare_result.stdout == dkms_nv_version and dkms_nv_version != nvidia_version)
+  ignore_errors: true
+
+- name: Show NVIDIA driver status and version
+  ansible.builtin.debug:
+    msg: "NVIDIA driver version {{ dkms_nv_version }} is installed and meets or exceeds the required version {{ nvidia_version }}"
+  when:
+    - dkms_nv_version != ''
+    - version_compare_result.stdout != dkms_nv_version or dkms_nv_version == nvidia_version
+
+- name: Set NVIDIA driver status
+  ansible.builtin.set_fact:
+    nvidia_driver_status: >-
+      {% if not dkms_check.failed %}
+        {% set correct_version = [] %}
+        {% set incorrect_version = [] %}
+        {% for info in dkms_nv_info %}
+          {% if info[0] == 'nvidia' and info[1] >= nvidia_version %}
+            {% set _ = correct_version.append(1) %}
+          {% elif info[0] == 'nvidia-srv' or info[1] < nvidia_version %}
+            {% set _ = incorrect_version.append(1) %}
+          {% endif %}
+        {% endfor %}
+        {% if correct_version %}
+          0
+        {% elif incorrect_version %}
+          2
+        {% else %}
+          1
+        {% endif %}
+      {% elif nvidia_smi_check.rc == 0 %}
+        3
+      {% else %}
+        1
+      {% endif %}
+  become: true
+
+- name: Display NVIDIA driver status and check results
+  ansible.builtin.debug:
+    msg:
+      - "NVIDIA driver status: {{ nvidia_driver_status }}"
+      - "DKMS check result: {{ dkms_check }}"
+      - "DKMS Result: {{ dkms_result }}"
+      - "Installed NVIDIA info: {{ dkms_nv_info }}"
+      - "Version comparison result: {{ version_compare_result }}"
+      - "NVIDIA SMI check result: {{ nvidia_smi_check.rc }}"
+      - "Required NVIDIA version: {{ nvidia_version }}"
+
+# Status code explanation:
+# 0: all_correct (DKMS installed, correct NVIDIA version)
+# 1: not_installed (No NVIDIA driver or DKMS not installed)
+# 2: incorrect_dkms (DKMS installed, but incorrect NVIDIA version or nvidia-srv present)
+# 3: non_dkms (NVIDIA driver installed without DKMS)
+
+- name: Uninstall non-DKMS NVIDIA driver
+  block:
+    - name: Stop graid_server
+      ansible.builtin.systemd:
+        name: graid.service
+        state: stopped
+      ignore_errors: true
+
+    - name: Unload module
+      community.general.modprobe:
+        name:
+          - graid_nvidia
+          - graid
+          - nvidia_uvm
+          - nvidia_drm
+          - nvidia_modeset
+          - nvidia
+        state: absent
+
+    - name: Uninstall NVIDIA driver (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - nvidia-*
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == "Debian"
+
+    - name: Uninstall NVIDIA driver (Red Hat/CentOS)
+      ansible.builtin.yum:
+        name:
+          - nvidia-*
+        state: absent
+        autoremove: true
+        purge: true
+      when: ansible_os_family == "RedHat"
+
+    - name: Uninstall NVIDIA driver (SUSE)
+      ansible.builtin.zypper:
+        name:
+          - nvidia-*
+        state: absent
+        autoremove: true
+        purge: true
+      when: ansible_os_family == "Suse"
+
+    - name: Run NVIDIA uninstall script
+      ansible.builtin.command: /usr/bin/nvidia-uninstall --s --q
+      ignore_errors: true
+
+    - name: Uninstall incorrect NVIDIA DKMS module
+      ansible.builtin.command:
+        cmd: "dkms remove -m {{ 'nvidia-srv' if 'nvidia-srv' in dkms_nv_version else 'nvidia' }}/{{ dkms_nv_version }} --all"
+      when: nvidia_driver_status == 2
+
+  when: nvidia_driver_status | int  == 3 or nvidia_driver_status | int == 2 or nvidia_smi_check.rc | int != 0
+  become: true
+
+# - name: Check if reboot is required (Debian/Ubuntu)
+#   ansible.builtin.stat:
+#     path: /var/run/reboot-required
+#   register: reboot_required_file
+#   when: ansible_os_family == "Debian"
+#   become: true
+
+# - name: Check if reboot is required (RHEL/CentOS)
+#   ansible.builtin.command: needs-restarting -r
+#   register: rhel_reboot_required
+#   changed_when: false
+#   failed_when: false
+#   when: ansible_os_family == "RedHat"
+#   become: true
+
+# - name: Check if reboot is required (SUSE)
+#   block:
+#     - name: Check for /boot/do_purge_kernels file
+#       ansible.builtin.stat:
+#         path: /boot/do_purge_kernels
+#       register: do_purge_kernels
+
+#     - name: Check for /var/run/reboot-needed file
+#       ansible.builtin.stat:
+#         path: /var/run/reboot-needed
+#       register: reboot_needed_file
+
+#     - name: Get running kernel version
+#       ansible.builtin.command: uname -r
+#       register: running_kernel
+#       changed_when: false
+
+#     - name: Get latest installed kernel version
+#       ansible.builtin.command: rpm -q --last kernel-default | head -1 | awk '{print $1}' | sed 's/kernel-default-//'
+#       register: latest_kernel
+#       changed_when: false
+
+#     - name: Check for patches requiring reboot
+#       ansible.builtin.command: zypper patches | grep -i "reboot needed"
+#       register: zypper_patches_reboot
+#       changed_when: false
+#       failed_when: false
+
+#     - name: Set SUSE reboot fact
+#       ansible.builtin.set_fact:
+#         suse_reboot_required: >-
+#           {{ do_purge_kernels.stat.exists or
+#              reboot_needed_file.stat.exists or
+#              running_kernel.stdout != latest_kernel.stdout or
+#              zypper_patches_reboot.rc == 0 }}
+#   when: ansible_os_family == "Suse"
+#   become: true
+
+# - name: Set reboot fact
+#   ansible.builtin.set_fact:
+#     reboot_required: >-
+#       {% if ansible_os_family == "Debian" %}
+#         {{ reboot_required_file.stat.exists }}
+#       {% elif ansible_os_family == "RedHat" %}
+#         {{ rhel_reboot_required.rc == 1 }}
+#       {% elif ansible_os_family == "Suse" %}
+#         {{ suse_reboot_required }}
+#       {% else %}
+#         false
+#       {% endif %}
+#   become: true
+
+# - name: Reboot system if required
+#   ansible.builtin.reboot:
+#     msg: "Reboot required after NVIDIA driver uninstallation"
+#     reboot_timeout: 600
+#   when: reboot_required
+#   become: true
+
+# - name: Wait for system to come back
+#   ansible.builtin.wait_for_connection:
+#     delay: 60
+#     timeout: 300
+#   when: reboot_required
+#   become: true
+
+- name: Set final NVIDIA driver status for subsequent tasks
+  ansible.builtin.set_fact:
+    nvidia_setup_required: >-
+      {% if  nvidia_driver_status | int  == 0  %}
+      false
+      {% else %}
+      true
+      {% endif %}
+  become: true
+# - name: Display final status
+#   ansible.builtin.debug:
+#     msg:
+#       - "NVIDIA driver status: {{ nvidia_driver_status }}"
+#       - "NVIDIA setup required: {{ nvidia_setup_required }}"
+#   become: true

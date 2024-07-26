@@ -7,8 +7,8 @@ valid_raid_type:
   - raid5
   - raid6
   - raid10
-configure_vd_size: "50MB"
-configure_vd_counts: 4
+configure_vd_size: ""
+configure_vd_counts: 1
 
 configure_delete_raid: false
 

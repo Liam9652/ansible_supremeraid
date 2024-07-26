@@ -1,6 +1,20 @@
 ---
 # tasks file for run_installer
 
+- name: Check if the conf file exists
+  ansible.builtin.stat:
+    path: "/etc/graid.ansible.conf"
+  register: driver_conf_stats
+  become: true
+
+- name: Set the conf type once update
+  ansible.builtin.shell:
+    cmd: echo 1 > /etc/graid.ansible.conf
+  become: true
+  ignore_errors: true
+  tags:
+    - update
+
 - name: Include query_serial role
   ansible.builtin.include_tasks: ../prepare/tasks/query_serial.yml
 
@@ -32,62 +46,68 @@
     msg: "Installer file not found: {{ installer_filename }}"
   when: found_files.matched == 0
 
-- name: Query the graid version when update
-  ansible.builtin.command: graidctl version --format json
-  register: graidctl_output
-  become: true
-  ignore_errors: true
-  tags:
-    - update
+- name: Determine execute or not
 
-- name: remove and backup the old_installation log
-  ansible.builtin.command: mv /var/log/graid-installer/installer.log /var/log/graid-installer/installer.log.bak
-  become: true
-  when: graidctl_output.rc == 0
-  tags:
-    - update
+  block:
+    - name: Check if the old_installation-installer log file exists
+      ansible.builtin.stat:
+        path: "/var/log/graid-installer/installer.log "
+      register: installer_log_stats
 
-- name: Set installer path
-  ansible.builtin.set_fact:
-    installer_path: "{{ found_files.files[0].path }}"
+    - name: remove and backup the old_installation log
+      ansible.builtin.command: mv /var/log/graid-installer/installer.log /var/log/graid-installer/installer.log.bak
+      become: true
+      when: installer_log_stats.stat.exists
 
-- name: Run the installer
-  ansible.builtin.command: "bash {{ installer_path }} --accept-license"
-  async: 1800
-  poll: 0
-  register: install_result
+    - name: Set installer path
+      ansible.builtin.set_fact:
+        installer_path: "{{ found_files.files[0].path }}"
 
-- name: Monitor installer log file
-  ansible.builtin.shell: |
-    tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
-  register: log_content
-  become: true
-  until: log_content.rc == 0
-  retries: 180
-  delay: 10
-  changed_when: false
-  failed_when: false
-  ignore_unreachable: true
+    - name: Run the installer
+      ansible.builtin.command: "bash {{ installer_path }} --accept-license"
+      async: 1800
+      poll: 0
+      register: install_result
 
-- name: Clear host errors
-  ansible.builtin.meta: clear_host_errors
+    - name: Monitor installer log file
+      ansible.builtin.shell: |
+        tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
+      register: log_content
+      become: true
+      until: log_content.rc == 0
+      retries: 180
+      delay: 10
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
 
-- name: Wait for the server to finish rebooting
-  ansible.builtin.wait_for_connection:
-    delay: 30
-    timeout: 300
+    - name: Clear host errors
+      ansible.builtin.meta: clear_host_errors
 
-- name: Check network connectivity after installer
-  ansible.builtin.ping:
-  register: ping_result_after_installer
-  ignore_errors: true
+    - name: Wait for the server to finish rebooting
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        timeout: 300
 
-- name: Wait for SSH to come back
-  ansible.builtin.wait_for:
-    host: "{{ inventory_hostname }}"
-    port: 22
-    delay: 30
-    timeout: 1200
-    state: started
-  when: ping_result_after_installer is failed
-  ignore_unreachable: true
+    - name: Check network connectivity after installer
+      ansible.builtin.ping:
+      register: ping_result_after_installer
+      ignore_errors: true
+
+    - name: Wait for SSH to come back
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 22
+        delay: 30
+        timeout: 1200
+        state: started
+      when: ping_result_after_installer is failed
+      ignore_unreachable: true
+
+    - name: Set conf
+      ansible.builtin.shell:
+        cmd: echo 0 > /etc/graid.ansible.conf
+      become: true
+      ignore_errors: true
+
+  when: installation_type | int != 0 or  driver_conf_stats.stat.exists is not defined or not driver_conf_stats.stat.exists

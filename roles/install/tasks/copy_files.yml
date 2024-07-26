@@ -8,6 +8,43 @@
     state: directory
     mode: "0755"
 
+- name: Ensure download directory exists
+  become: true
+  ansible.builtin.file:
+    path: "{{ graid_path }}"
+    state: directory
+    mode: "0755"
+
+- name: Check if the nv_driver file exists
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ graid_path }}{{ linux.nv_url | basename }}"
+  register: nv_driver_stats
+
+- name: Check if installers exist on control node
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ graid_path }}{{ item | basename }}"
+  loop: "{{ linux.installer_urls }}"
+  register: installer_stats
+
+- name: Check if the pre-installer file exists
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+  register: pre_installer_stats
+
+- name: Download nv_driver to control node
+  delegate_to: localhost
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ linux.nv_url }}"
+    dest: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    mode: "0755"
+  when:
+    - ansible_os_family != "Windows"
+    - not nv_driver_stats.stat.exists
+
 - name: Download pre-installer to control node
   delegate_to: localhost
   become: true
@@ -17,6 +54,7 @@
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
+    - not pre_installer_stats.stat.exists
 
 - name: Download installers to control node
   delegate_to: localhost
@@ -25,7 +63,17 @@
     url: "{{ item }}"
     dest: "{{ graid_path }}{{ item | basename }}"
     mode: "0755"
-  loop: "{{ linux.installer_urls }}"
+  loop: "{{ installer_stats.results }}"
+  when:
+    - ansible_os_family != "Windows"
+    - not item.stat.exists
+
+- name: Copy nv_driver to remote host
+  become: true
+  ansible.builtin.copy:
+    src: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    dest: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    mode: "0755"
   when:
     - ansible_os_family != "Windows"
 
