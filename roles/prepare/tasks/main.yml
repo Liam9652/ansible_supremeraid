@@ -1,9 +1,28 @@
 ---
 # tasks file for prepare
 - name: Identify system
-  ansible.builtin.import_tasks: identify_system.yml
-  tags: [identify]
+  ansible.builtin.include_tasks: identify_system.yml
+  args:
+    apply:
+      tags:
+        - identify
+  tags:
+    - identify
 
 - name: Query serial
-  ansible.builtin.import_tasks: query_serial.yml
-  tags: [query]
+  ansible.builtin.include_tasks: query_serial.yml
+  args:
+    apply:
+      tags:
+        - query
+  tags:
+    - query
+
+- name: Check NVIDIA Driver
+  ansible.builtin.include_tasks: check_nv_driver.yml
+  args:
+    apply:
+      tags:
+        - nvidia
+  tags:
+    - nvidia

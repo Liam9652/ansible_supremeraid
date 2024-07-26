@@ -1,15 +1,30 @@
 ---
 # tasks file for configure
 - name: Activate service
-  ansible.builtin.import_tasks: common/activate_service.yml
-  tags: [activate]
+  ansible.builtin.include_tasks: common/activate_service.yml
+  args:
+    apply:
+      tags:
+        - activate
+  tags:
+    - activate
 
 - name: Setup RAID
-  ansible.builtin.import_tasks: create_raid.yml
-  tags: [raid]
+  ansible.builtin.include_tasks: create_raid.yml
+  args:
+    apply:
+      tags:
+        - raid
+  tags:
+    - raid
   when: not configure_delete_raid
 
 - name: Uncompose RAID
-  ansible.builtin.import_tasks: delete_raid.yml
-  tags: [delete]
+  ansible.builtin.include_tasks: delete_raid.yml
+  args:
+    apply:
+      tags:
+        - delete
+  tags:
+    - delete
   when: configure_delete_raid
