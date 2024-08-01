@@ -3,16 +3,16 @@
   ansible.builtin.include_tasks: ../prepare/tasks/identify_system.yml
 
 - name: Set default values and query devices
-  ansible.builtin.import_tasks: create/prepare_devices.yml
+  ansible.builtin.include_tasks: create/prepare_devices.yml
 
-- name: validate configs
-  ansible.builtin.import_tasks: create/validate_configs.yml
+- name: Validate configs
+  ansible.builtin.include_tasks: create/validate_configs.yml
 
 - name: Create physical drives
-  ansible.builtin.import_tasks: create/create_physical_drives.yml
+  ansible.builtin.include_tasks: create/create_physical_drives.yml
 
 - name: Create drive groups
-  ansible.builtin.import_tasks: create/create_drive_groups.yml
+  ansible.builtin.include_tasks: create/create_drive_groups.yml
 
 - name: Create virtual drives
-  ansible.builtin.import_tasks: create/create_virtual_drives.yml
+  ansible.builtin.include_tasks: create/create_virtual_drives.yml

@@ -98,5 +98,7 @@
     permanent: true
     state: enabled
   notify: Reload firewall
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
   become: true
   when: ansible_facts['os_family'] == "RedHat"
