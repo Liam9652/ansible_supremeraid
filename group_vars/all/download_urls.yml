@@ -14,10 +14,10 @@ linux:
   # Update the installer URLs based on your GPU model.
   # Example URLs are provided below. Replace with the correct URLs from the official website.
   installer_urls:
-    - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-000-247-202.run
-    - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-001-247-202.run
-    - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-010-247-202.run
-    - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-011-247-202.run
+  - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-000-247-202.run
+  - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-001-247-202.run
+  - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-010-247-202.run
+  - https://download.graidtech.com/driver/sr/linux/1.6.0/release/graid-sr-installer-1.6.0-011-247-202.run
   dkms_package_url: "http://example.com/path/to/dkms-3.0.13-1.el8.noarch.rpm"
 
   iso_file_url: "http://example.com/path/to/Rocky-8.8-x86_64-dvd1.iso"
@@ -29,6 +29,6 @@ windows:
   nv_url: "https://us.download.nvidia.com/Windows/Quadro_Certified/552.22/552.22-quadro-rtx-desktop-notebook-win10-win11-64bit-international-dch-whql.exe"
 
   installer_win_urls:
-    - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.000.x64-WHQL.exe
-    - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.001.x64-WHQL.exe
-    - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.010.x64-WHQL.exe
+  - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.000.x64-WHQL.exe
+  - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.001.x64-WHQL.exe
+  - https://download.graidtech.com/driver/sr/windows/1.2.3/release/graid-sr-1.2.3-242-242.010.x64-WHQL.exe
