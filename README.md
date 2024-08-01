@@ -89,9 +89,11 @@ This project is licensed under the [Your License] - see the LICENSE.md file for 
 
    - Add the necessary download links for SupremeRAID packages.
 
-   b. Modify RAID configuration in `/roles/configure/vars/main.yml`:
+   b. Modify the configuration:
 
-   - Adjust RAID parameters according to your requirements.
+   - Adjust the basic parameters in `/group_vars/all/main.yml`.
+
+   - Adjust RAID parameters according to your requirements in `/group_vars/all/configure.yml`.
 
    c. Prepare the license mapping file:
 
@@ -105,9 +107,15 @@ This project is licensed under the [Your License] - see the LICENSE.md file for 
 
 Note: The `inventory/hosts` file uses localhost in the repo. You can use the ansible_user=root if your local user is not the same and you do not have set the right user permission.
 
-5. Review and modify other variables in `vars/supremeraid_vars.yaml` as needed.
 
 ## Usage
+
+Before run the playbook, you can run the environment setup script, otherwise, please add the correct python interpreter into the host file.
+
+```
+python3 setup_ansible_environment.py 
+
+```
 
 To run the entire playbook:
 
@@ -122,20 +130,32 @@ Use tags to run specific parts of the playbook:
 - `prepare`: Run preparation tasks
   - `identify`: Identify system
   - `query`: Query serial number
+  - `nvidia`: Check NV driver
 - `install`: Run installation tasks
   - `download`: Download packages
-  - `copy`: Copy files (offline mode)
+  - `copy`: Copy files
   - `setup`: Set up environment
+  - `driver`: Install driver
 - `configure`: Run configuration tasks
   - `activate`: Activate service
   - `raid`: Configure RAID
-- `downloads`: Downloads only SupremeRAID packages
+  - `delete`: Delete RAID
 
-Example: To only configure RAID:
+
+Example: 
+
+To only configure RAID:
 
 ```
 ansible-playbook playbook.yaml --tags raid
 ```
+
+To delete RAID configuration:
+
+```
+ansible-playbook playbook.yaml --tags delete --extra-vars "configure_delete_raid=true"
+```
+
 
 ## Roles
 
