@@ -158,7 +158,6 @@
           - nvidia-*
         state: absent
         autoremove: true
-        purge: true
       when: ansible_os_family == "RedHat"
 
     - name: Uninstall NVIDIA driver (SUSE)
@@ -166,8 +165,6 @@
         name:
           - nvidia-*
         state: absent
-        autoremove: true
-        purge: true
       when: ansible_os_family == "Suse"
 
     - name: Run NVIDIA uninstall script
