@@ -57,6 +57,33 @@
       tags:
         - always
 
+    # Disk space check in a block with rescue
+    - name: Check disk space
+      block:
+        - name: Calculate available space on / partition
+          ansible.builtin.set_fact:
+            free_space_gb: >-
+              {{ (ansible_facts.mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | float / 1024 / 1024 / 1024) | round(2) }}
+
+        - name: Check available space on / partition and fail if insufficient
+          ansible.builtin.fail:
+            msg: >-
+              Insufficient space on / partition. Current free space: {{ free_space_gb }}GB.
+              Required: greater than {{ min_disk_space_gb }}GB
+          when: free_space_gb | float < min_disk_space_gb | float
+
+        - name: Display success message if space is sufficient
+          ansible.builtin.debug:
+            msg: >-
+              Sufficient space on / partition. Current free space: {{ free_space_gb }}GB.
+              Meets requirement (greater than {{ min_disk_space_gb }}GB)
+      rescue:
+        - name: Fail the play if disk space check failed
+          ansible.builtin.fail:
+            msg: "Playbook execution stopped due to insufficient disk space."
+      tags:
+        - always
+
   tasks:
     - name: Run prepare tasks
       ansible.builtin.import_role:

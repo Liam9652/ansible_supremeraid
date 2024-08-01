@@ -1,11 +1,36 @@
-# group_vars/default.yml
+# group_vars/all/main.yml
+
+# free space check requirement
+min_disk_space_gb: 7 # Set minimum required free space in GB, DO NOT change this value.
 
 # General variables
 configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
 configure_device_model_name: "INTEL SSDPF2KX038TZ"
 configure_graid_mgr_port: 50060
+configure_copy_from_local: true
 
 # Installation related variables
 graid_path: "{{ ansible_env.HOME }}/graid_package/"
 install_mode: "offline"
 remote_os: "linux"
+
+# Miniconda version and environment name
+miniconda_version: "latest"
+conda_env_name: "graid_ansible_env"
+python_version: "3.11"
+inventory_file: "ansible_supremeraid/inventory/hosts"
+log_dir: "logs"
+
+# Network settings
+ping_count: 3
+ping_timeout: 5
+
+# Retry settings
+max_retries: 3
+retry_delay: 5
+
+# Parallel execution
+max_parallel_hosts: 5
+# Paths
+# inventory_file: "ansible_supremeraid/inventory/hosts"
+
