@@ -5,9 +5,9 @@
       - configure_pd_sorting in valid_pd_attributes
       - configure_pd_create_attribute in valid_pd_attributes
     fail_msg: >
-      Invalid attributes specified. 
-      Sorting attribute: '{{ configure_pd_sorting }}', 
-      Create attribute: '{{ configure_pd_create_attribute }}'. 
+      Invalid attributes specified.
+      Sorting attribute: '{{ configure_pd_sorting }}',
+      Create attribute: '{{ configure_pd_create_attribute }}'.
       Valid options are: {{ valid_pd_attributes | join(', ') }}
 
 - name: Validate RAID type

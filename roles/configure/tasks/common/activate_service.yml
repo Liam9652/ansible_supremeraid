@@ -85,7 +85,7 @@
   notify: Restart graid-mgr service
 
 - name: Open firewall port for graid-mgr (Ubuntu)
-  ansible.builtin.ufw:
+  community.general.ufw:
     rule: allow
     port: "{{ configure_graid_mgr_port }}"
     proto: tcp

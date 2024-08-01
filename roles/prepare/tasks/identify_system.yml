@@ -17,6 +17,7 @@
   ansible.builtin.command: lscpu -p=NODE
   become: true
   register: numa_info
+  changed_when: false
 
 - name: Set NUMA nodes fact
   ansible.builtin.set_fact:
@@ -26,6 +27,7 @@
   ansible.builtin.command: lscpu -p=SOCKET
   become: true
   register: socket_info
+  changed_when: false
 
 - name: Set OS  information
   ansible.builtin.set_fact:

@@ -43,7 +43,7 @@
 - name: Download pre-installer to remote host directly
   ansible.builtin.command:
     cmd: >
-      wget 
+      wget
       --no-check-certificate
       -O "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
       "{{ linux.pre_installer_url }}"

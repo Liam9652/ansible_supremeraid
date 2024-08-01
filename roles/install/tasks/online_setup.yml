@@ -52,14 +52,21 @@
     msg: "Installation type determined: {{ installation_type }}"
 
 - name: Run SupremeRAID pre-installer in online mode if needed
+  when: installation_type_int | int in [0, 1]
+  become: true
   block:
     - name: Check if the pre-installer log file exists
       ansible.builtin.stat:
         path: "/var/log/graid-preinstaller/preinstaller.log"
       register: preinstaller_log_stats
 
-    - name: Remove and backup the old_pre_installer log
-      ansible.builtin.command: mv /var/log/graid-preinstaller/preinstaller.log /var/log/graid-preinstaller/preinstaller.log.bak
+    - name: Remove and backup the old_preinstallation log
+      ansible.builtin.copy:
+        src: /var/log/graid-preinstaller/preinstaller.log
+        dest: /var/log/graid-preinstaller/preinstaller.log.bak
+        remote_src: true
+        force: true
+        mode: "0644"
       become: true
       when: preinstaller_log_stats.stat.exists
 
@@ -71,33 +78,33 @@
       register: preinstaller_job
 
     - name: Wait for preinstaller log file to be created
-      wait_for:
+      ansible.builtin.wait_for:
         path: /var/log/graid-preinstaller/preinstaller.log
         state: present
         timeout: 300
 
     - name: Monitor pre-installer log file
-      ansible.builtin.shell: |
-        timeout 1800 tail -n 100 -f /var/log/graid-preinstaller/preinstaller.log | grep -m 1 -E "\\[INFO\\] Selected 'Yes' for reboot system.|\\[ERROR\\]"
+      ansible.builtin.wait_for:
+        path: /var/log/graid-preinstaller/preinstaller.log
+        search_regex: "\\[INFO\\] Selected 'Yes' for reboot system.|\\[ERROR\\]"
+        timeout: 1800 # 30 minutes
       register: log_content
-      until: log_content.rc == 0
       become: true
-      retries: 180
-      delay: 10
-      changed_when: false
-      failed_when: >
-        ('[ERROR]' in log_content.stdout)
       ignore_unreachable: true
+
+    - name: Check for error in log content
+      ansible.builtin.fail:
+        msg: "Error detected in pre-installer log"
+      when: log_content.matched and '[ERROR]' in log_content.match
 
     # - name: Fail when error is detected
     #   ansible.builtin.fail:
     #     msg: "Error detected in pre-installer log: {{ log_content.stdout }}"
     #   when: log_content.failed and '[ERROR]' in log_content.stdout
 
-  when: installation_type_int | int in [0, 1]
-  become: true
-
 - name: Install/Update nvidia driver
+  when: installation_type_int | int  == 2
+  become: true
   block:
     - name: Stop graid_server
       ansible.builtin.systemd:
@@ -122,8 +129,13 @@
         path: "/var/log/nvidia-installer.log"
       register: nvidia_log_stats
 
-    - name: Remove and backup the old_pre_installer log
-      ansible.builtin.command: mv /var/log/nvidia-installer.log /var/log/nvidia-installer.log.bak
+    - name: Remove and backup the old_nv_installation log
+      ansible.builtin.copy:
+        src: /var/log/nvidia-installer.log
+        dest: /var/log/nvidia-installer.log.bak
+        remote_src: true
+        force: true
+        mode: "0644"
       become: true
       when: nvidia_log_stats.stat.exists
 
@@ -135,29 +147,24 @@
       register: nv_driver_job
 
     - name: Wait for nv-installer log file to be created
-      wait_for:
+      ansible.builtin.wait_for:
         path: /var/log/nvidia-installer.log
         state: present
         timeout: 300
 
     - name: Monitor for installation completion message in updating log
-      ansible.builtin.shell: |
-        tail -n 0 -f /var/log/nvidia-installer.log | while read line; do
-          if echo "$line" | grep -q "Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 (version: "; then
-            echo "Found installation completion message"
-            exit 0
-          fi
-        done
-      async: 600 # Run for up to 10 mins
-      poll: 0
-      register: monitor_job
+      ansible.builtin.wait_for:
+        path: /var/log/nvidia-installer.log
+        search_regex: "Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 \\(version: "
+        timeout: 600 # 10 minutes
+      register: wait_result
 
     - name: Debug
       ansible.builtin.debug:
         msg: "monitor_job: {{ monitor_job }}"
 
     - name: Check monitoring job status
-      async_status:
+      ansible.builtin.async_status:
         jid: "{{ monitor_job.ansible_job_id }}"
       register: job_result
       until: job_result.finished
@@ -169,10 +176,10 @@
         msg: "Rebooting after NVIDIA driver installation"
         reboot_timeout: 600
       when: job_result.finished and job_result.rc == 0
-  when: installation_type_int | int  == 2
-  become: true
 
 - name: Check connectivity after reboot
+  when: installation_type_int | int in [0, 1, 2]
+  become: true
   block:
     - name: Clear host errors
       ansible.builtin.meta: clear_host_errors
@@ -201,9 +208,6 @@
       ansible.builtin.pause:
         seconds: 60
       when: ping_result_after_preinstaller is failed
-
-  when: installation_type_int | int in [0, 1, 2]
-  become: true
 
 - name: No action required
   ansible.builtin.debug:

@@ -6,6 +6,7 @@
   become: true
   ignore_errors: true
   failed_when: serial_output.rc != 0
+  changed_when: false
 
 - name: Debug GPU information
   ansible.builtin.debug:

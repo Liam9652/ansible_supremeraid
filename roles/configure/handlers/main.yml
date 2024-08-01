@@ -10,3 +10,5 @@
   ansible.builtin.command: firewall-cmd --reload
   become: true
   when: ansible_facts['os_family'] == "RedHat"
+  register: firewall_reload_result
+  changed_when: "'success' in firewall_reload_result.stdout"

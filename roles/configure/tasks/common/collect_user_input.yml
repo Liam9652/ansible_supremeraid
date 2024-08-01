@@ -15,12 +15,14 @@
   register: nvme_devices_output
   ignore_errors: true
   become: true
+  changed_when: false
 
 - name: Query SCSI devices
   ansible.builtin.command: graidctl ls sd --format json
   register: scsi_devices_output
   ignore_errors: true
   become: true
+  changed_when: false
 
 - name: Parse device data and display models
   ansible.builtin.set_fact:
@@ -39,7 +41,7 @@
 
 - name: Display all available models
   ansible.builtin.debug:
-    msg: 
+    msg:
       - "All available NVMe models across all hosts: {{ all_nvme_models | unique | join(', ') }}"
       - "All available SCSI models across all hosts: {{ all_scsi_models | unique | join(', ') }}"
   run_once: true
@@ -69,7 +71,10 @@
 
 - name: Prompt for model name if by_model_input
   ansible.builtin.pause:
-    prompt: "Enter the model name of devices you want to create PDs for (available NVMe models: {{ all_nvme_models | unique | join(', ') }}, available SCSI models: {{ all_scsi_models | unique | join(', ') }}):"
+    prompt: >-
+      Enter the model name of devices you want to create PDs for.
+      ({{ all_nvme_models | unique | length }} NVMe models,
+      {{ all_scsi_models | unique | length }} SCSI models available):
   register: model_input
   when: creation_method == '1'
   run_once: true
@@ -95,16 +100,19 @@
     device_model_name: "{{ hostvars['localhost']['device_model_name'] }}"
 
 - name: Custom selection for each host
+  when: creation_method == '4'
   block:
     - name: Prompt for custom selection
       ansible.builtin.pause:
-        prompt: "Enter the model names or 'all' for host {{ inventory_hostname }} (available NVMe models: {{ nvme_models | join(', ') }}, available SCSI models: {{ scsi_models | join(', ') }}):"
+        prompt: >-
+          Enter the model names or 'all' for host {{ inventory_hostname }}
+          (available NVMe models: {{ nvme_models | join(', ') }},
+          available SCSI models: {{ scsi_models | join(', ') }}):
       register: host_custom_input
 
     - name: Set custom device selection for host
       ansible.builtin.set_fact:
         host_device_selection: "{{ host_custom_input.user_input | default('all') | trim }}"
-  when: creation_method == '4'
 
 - name: Debug variables
   ansible.builtin.debug:

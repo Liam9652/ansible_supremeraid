@@ -14,6 +14,7 @@
   register: graidctl_check
   ignore_errors: true
   become: true
+  changed_when: false
 
 - name: Check NVIDIA driver installation (non-DKMS)
   ansible.builtin.command: nvidia-smi
@@ -27,8 +28,11 @@
     nvidia_version: "{{ linux.nv_url | regex_search('/([\\d.]+)/') | regex_replace('/', '') }}"
 
 - name: Get installed NVIDIA driver version from DKMS
-  ansible.builtin.shell:
-    cmd: "dkms status | grep -E 'nvidia/|nvidia-srv/' | awk -F'/' '{print $1,$2}' | awk -F ',' '{print $1}'"
+  ansible.builtin.shell: |
+    set -o pipefail
+    dkms status | grep -E 'nvidia/|nvidia-srv/' | awk -F'/' '{print $1,$2}' | awk -F ',' '{print $1}'
+  args:
+    executable: /bin/bash
   register: dkms_result
   failed_when: false
   changed_when: false
@@ -67,10 +71,13 @@
 
 - name: Fail if installed version is lower or empty
   ansible.builtin.fail:
-    msg: "Installed NVIDIA driver version ({{ dkms_nv_version | default('Not found') }}) is lower than or not equal to the required version ({{ nvidia_version }})"
-  when: >
-    dkms_nv_version | default('') | trim == '' or 
-    (version_compare_result.stdout == dkms_nv_version and dkms_nv_version != nvidia_version)
+    msg: >-
+      Installed NVIDIA driver version ({{ dkms_nv_version | default('Not found') }})
+      is lower than or not equal to the required version ({{ nvidia_version }})
+  when: >-
+    dkms_nv_version | default('') | trim == '' or
+    (version_compare_result.stdout == dkms_nv_version and
+     dkms_nv_version != nvidia_version)
   ignore_errors: true
 
 - name: Show NVIDIA driver status and version
@@ -125,6 +132,8 @@
 # 3: non_dkms (NVIDIA driver installed without DKMS)
 
 - name: Uninstall non-DKMS NVIDIA driver
+  when: nvidia_driver_status | int  == 3 or nvidia_driver_status | int == 2 or nvidia_smi_check.rc | int != 0
+  become: true
   block:
     - name: Stop graid_server
       ansible.builtin.systemd:
@@ -153,7 +162,7 @@
       when: ansible_os_family == "Debian"
 
     - name: Uninstall NVIDIA driver (Red Hat/CentOS)
-      ansible.builtin.yum:
+      ansible.builtin.dnf:
         name:
           - nvidia-*
         state: absent
@@ -161,7 +170,7 @@
       when: ansible_os_family == "RedHat"
 
     - name: Uninstall NVIDIA driver (SUSE)
-      ansible.builtin.zypper:
+      community.general.zypper:
         name:
           - nvidia-*
         state: absent
@@ -170,14 +179,13 @@
     - name: Run NVIDIA uninstall script
       ansible.builtin.command: /usr/bin/nvidia-uninstall --s --q
       ignore_errors: true
+      changed_when: false
 
     - name: Uninstall incorrect NVIDIA DKMS module
       ansible.builtin.command:
         cmd: "dkms remove -m {{ 'nvidia-srv' if 'nvidia-srv' in dkms_nv_version else 'nvidia' }}/{{ dkms_nv_version }} --all"
       when: nvidia_driver_status == 2
-
-  when: nvidia_driver_status | int  == 3 or nvidia_driver_status | int == 2 or nvidia_smi_check.rc | int != 0
-  become: true
+      changed_when: false
 
 # - name: Check if reboot is required (Debian/Ubuntu)
 #   ansible.builtin.stat:

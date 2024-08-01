@@ -67,12 +67,14 @@
   register: nvme_devices_output
   ignore_errors: true
   become: true
+  changed_when: false
 
 - name: Query SCSI devices
   ansible.builtin.command: graidctl ls sd --format json
   register: scsi_devices_output
   ignore_errors: true
   become: true
+  changed_when: false
 
 - name: Parse device data and display models
   ansible.builtin.set_fact:
@@ -259,6 +261,7 @@
   ansible.builtin.copy:
     content: "{{ nqn_list | to_nice_json }}"
     dest: "/tmp/prepared_devices.json"
+    mode: "0755"
   become: true
 
 - name: Display saved content

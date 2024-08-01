@@ -23,7 +23,7 @@
         - always
 
     - name: Debug variables
-      debug:
+      ansible.builtin.debug:
         msg:
           - "graid_path: {{ graid_path | default('undefined') }}"
           - "linux: {{ linux | default('undefined') }}"
@@ -59,11 +59,20 @@
 
     # Disk space check in a block with rescue
     - name: Check disk space
+      tags:
+        - always
       block:
         - name: Calculate available space on / partition
           ansible.builtin.set_fact:
             free_space_gb: >-
-              {{ (ansible_facts.mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | float / 1024 / 1024 / 1024) | round(2) }}
+              {{
+                (ansible_facts.mounts
+                | selectattr('mount', 'equalto', '/')
+                | map(attribute='size_available')
+                | first
+                | float / 1024 / 1024 / 1024)
+                | round(2)
+              }}
 
         - name: Check available space on / partition and fail if insufficient
           ansible.builtin.fail:
@@ -81,8 +90,7 @@
         - name: Fail the play if disk space check failed
           ansible.builtin.fail:
             msg: "Playbook execution stopped due to insufficient disk space."
-      tags:
-        - always
+
 
   tasks:
     - name: Run prepare tasks

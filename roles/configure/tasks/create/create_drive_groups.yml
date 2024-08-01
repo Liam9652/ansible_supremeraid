@@ -3,6 +3,7 @@
   ansible.builtin.command: sudo graidctl ls dg --format=json
   become: true
   register: existing_dg_output
+  changed_when: false
 
 - name: Parse existing drive groups
   ansible.builtin.set_fact:
@@ -44,6 +45,7 @@
     - configure_create_by_numa | bool
     - configure_create_by_socket == '' or configure_create_by_socket | int < 0
   register: create_dg_numa_results
+  changed_when: false
 
 - name: Create drive groups by Socket
   become: true
@@ -55,6 +57,7 @@
     - configure_create_by_socket | int > 0
     - not configure_create_by_numa | bool
   register: create_dg_socket_results
+  changed_when: false
 
 - name: Create single drive group
   become: true
@@ -63,11 +66,13 @@
     {% if configure_dg_foreground_init %} -z{% endif %}
   when: not configure_create_by_numa and configure_create_by_socket | int == 0
   register: create_dg_single_result
+  changed_when: false
 
 - name: Query new drive groups
   become: true
   ansible.builtin.command: graidctl ls dg --format=json
   register: new_dg_output
+  changed_when: false
 
 - name: Parse new drive groups and find newly added DgIds
   ansible.builtin.set_fact:
@@ -84,6 +89,7 @@
   ansible.builtin.fail:
     msg: "Failed to create any new drive groups."
   when: newly_added_dg_list | length == 0
+  changed_when: false
 
 - name: Wait for drive groups to initialize
   become: true
@@ -93,6 +99,7 @@
   retries: 1000000
   delay: 60
   when: configure_dg_foreground_init | bool
+  changed_when: false
 
 - name: Debug output of newly created drive groups
   ansible.builtin.debug:

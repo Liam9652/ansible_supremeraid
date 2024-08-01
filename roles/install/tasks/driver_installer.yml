@@ -8,10 +8,12 @@
   become: true
 
 - name: Set the conf type once update
-  ansible.builtin.shell:
-    cmd: echo 1 > /etc/graid.ansible.conf
+  ansible.builtin.lineinfile:
+    path: /etc/graid.ansible.conf
+    line: "1"
+    create: true
+    mode: "0644"
   become: true
-  ignore_errors: true
   tags:
     - update
 
@@ -47,6 +49,7 @@
   when: found_files.matched == 0
 
 - name: Determine execute or not
+  when: installation_type | int != 0 or  driver_conf_stats.stat.exists is not defined or not driver_conf_stats.stat.exists
 
   block:
     - name: Check if the old_installation-installer log file exists
@@ -54,8 +57,13 @@
         path: "/var/log/graid-installer/installer.log "
       register: installer_log_stats
 
-    - name: remove and backup the old_installation log
-      ansible.builtin.command: mv /var/log/graid-installer/installer.log /var/log/graid-installer/installer.log.bak
+    - name: Remove and backup the old_installation log
+      ansible.builtin.copy:
+        src: /var/log/graid-installer/installer.log
+        dest: /var/log/graid-installer/installer.log.bak
+        remote_src: true
+        force: true
+        mode: "0644"
       become: true
       when: installer_log_stats.stat.exists
 
@@ -68,23 +76,21 @@
       async: 1800
       poll: 0
       register: install_result
+      changed_when: false
 
     - name: Wait for installer log file to be created
-      wait_for:
+      ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
         state: present
         timeout: 300
 
     - name: Monitor installer log file
-      ansible.builtin.shell: |
-        tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
+      ansible.builtin.wait_for:
+        path: /var/log/graid-installer/installer.log
+        search_regex: "\\[INFO\\] Asking reboot\\?"
+        timeout: 1800 # 180 * 10 seconds = 1800 seconds = 30 minutes
       register: log_content
       become: true
-      until: log_content.rc == 0
-      retries: 180
-      delay: 10
-      changed_when: false
-      failed_when: false
       ignore_unreachable: true
 
     - name: Clear host errors
@@ -111,9 +117,10 @@
       ignore_unreachable: true
 
     - name: Set conf
-      ansible.builtin.shell:
-        cmd: echo 0 > /etc/graid.ansible.conf
+      ansible.builtin.copy:
+        content: "0"
+        dest: /etc/graid.ansible.conf
+        mode: "0644"
       become: true
-      ignore_errors: true
-
-  when: installation_type | int != 0 or  driver_conf_stats.stat.exists is not defined or not driver_conf_stats.stat.exists
+      register: conf_result
+      changed_when: conf_result.changed
