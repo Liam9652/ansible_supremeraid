@@ -70,17 +70,29 @@
       become: true
       register: preinstaller_job
 
+    - name: Wait for preinstaller log file to be created
+      wait_for:
+        path: /var/log/graid-preinstaller/preinstaller.log
+        state: present
+        timeout: 300
+
     - name: Monitor pre-installer log file
-      ansible.builtin.command: |
-        tail -n 10 -f /var/log/graid-preinstaller/preinstaller.log | grep -m 1 "\\[INFO\\] Selected 'Yes' for reboot system\\."
+      ansible.builtin.shell: |
+        timeout 1800 tail -n 100 -f /var/log/graid-preinstaller/preinstaller.log | grep -m 1 -E "\\[INFO\\] Selected 'Yes' for reboot system.|\\[ERROR\\]"
       register: log_content
       until: log_content.rc == 0
       become: true
       retries: 180
       delay: 10
       changed_when: false
-      failed_when: false
+      failed_when: >
+        ('[ERROR]' in log_content.stdout)
       ignore_unreachable: true
+
+    # - name: Fail when error is detected
+    #   ansible.builtin.fail:
+    #     msg: "Error detected in pre-installer log: {{ log_content.stdout }}"
+    #   when: log_content.failed and '[ERROR]' in log_content.stdout
 
   when: installation_type_int | int in [0, 1]
   become: true
@@ -121,6 +133,12 @@
       poll: 0
       become: true
       register: nv_driver_job
+
+    - name: Wait for nv-installer log file to be created
+      wait_for:
+        path: /var/log/nvidia-installer.log
+        state: present
+        timeout: 300
 
     - name: Monitor for installation completion message in updating log
       ansible.builtin.shell: |

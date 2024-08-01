@@ -69,6 +69,12 @@
       poll: 0
       register: install_result
 
+    - name: Wait for installer log file to be created
+      wait_for:
+        path: /var/log/graid-installer/installer.log
+        state: present
+        timeout: 300
+
     - name: Monitor installer log file
       ansible.builtin.shell: |
         tail -n 10 -f /var/log/graid-installer/installer.log | grep -m 1 "\\[INFO\\] Asking reboot\\?"
