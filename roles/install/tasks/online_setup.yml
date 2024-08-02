@@ -72,7 +72,7 @@
 
     - name: Run SupremeRAID pre-installer in online mode
       ansible.builtin.command: "bash {{ graid_path }}{{ linux.pre_installer_url | basename }} --yes"
-      async: 1800
+      async: "{{ configure_timeout | int * 5 }}"
       poll: 0
       become: true
       register: preinstaller_job
@@ -81,21 +81,29 @@
       ansible.builtin.wait_for:
         path: /var/log/graid-preinstaller/preinstaller.log
         state: present
-        timeout: 300
+        timeout: "{{ configure_timeout }}"
 
     - name: Monitor pre-installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-preinstaller/preinstaller.log
         search_regex: "\\[INFO\\] Selected 'Yes' for reboot system.|\\[ERROR\\]"
-        timeout: 1800 # 30 minutes
+        timeout: "{{ configure_timeout | int / 10 | int }}"
       register: log_content
       become: true
+      retries: 180
+      delay: 10
       ignore_unreachable: true
+      until: log_content is succeeded
+      failed_when: >
+        '[ERROR]' in log_content.match
 
-    - name: Check for error in log content
-      ansible.builtin.fail:
-        msg: "Error detected in pre-installer log"
-      when: log_content.matched and '[ERROR]' in log_content.match
+    # - name: Check for error in log content
+    #   ansible.builtin.lineinfile:
+    #     path: /var/log/graid-preinstaller/preinstaller.log
+    #     regexp: '\[ERROR\]'
+    #     state: absent
+    #   check_mode: true
+    #   register: log_check
 
     # - name: Fail when error is detected
     #   ansible.builtin.fail:
@@ -141,7 +149,7 @@
 
     - name: Run nvidia driver script
       ansible.builtin.command: "bash {{ graid_path }}{{ linux.nv_url | basename }} -s --no-systemd --no-opengl-files --no-nvidia-modprobe --dkms"
-      async: 1800
+      async: "{{ configure_timeout | int * 5 }}"
       poll: 0
       become: true
       register: nv_driver_job
@@ -150,13 +158,13 @@
       ansible.builtin.wait_for:
         path: /var/log/nvidia-installer.log
         state: present
-        timeout: 300
+        timeout: "{{ configure_timeout }}"
 
     - name: Monitor for installation completion message in updating log
       ansible.builtin.wait_for:
         path: /var/log/nvidia-installer.log
         search_regex: "Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 \\(version: "
-        timeout: 600 # 10 minutes
+        timeout: "{{ configure_timeout | int * 2 }}" # 10 minutes
       register: wait_result
 
     - name: Debug
@@ -174,7 +182,7 @@
     - name: Reboot the system
       ansible.builtin.reboot:
         msg: "Rebooting after NVIDIA driver installation"
-        reboot_timeout: 600
+        reboot_timeout: "{{ configure_timeout | int * 2 }}"
       when: job_result.finished and job_result.rc == 0
 
 - name: Check connectivity after reboot
@@ -187,7 +195,7 @@
     - name: Wait for the server to finish rebooting
       ansible.builtin.wait_for_connection:
         delay: 30
-        timeout: 300
+        timeout: "{{ configure_timeout }}"
 
     - name: Check network connectivity after setup
       ansible.builtin.ping:
@@ -199,7 +207,7 @@
         host: "{{ inventory_hostname }}"
         port: 22
         delay: 30
-        timeout: 1200
+        timeout: "{{ configure_timeout | int * 5 }}"
         state: started
       when: ping_result_after_preinstaller is failed
       ignore_unreachable: true

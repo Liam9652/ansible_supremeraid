@@ -42,16 +42,19 @@
       become: true
       failed_when: false
 
-    - name: Identify ZFS pools using GRAID devices
+    - name: Identify ZFS pools using Graid devices
       ansible.builtin.set_fact:
         zfs_pools_to_remove: "{{ zpool_status_results.results | selectattr('stdout', 'search', '/dev/gdg') | map(attribute='item') | list }}"
 
-    - name: Check if VDs are mounted
-      ansible.builtin.find:
-        paths: /proc/mounts
-        contains: "/dev/gdg"
-      register: mount_output
-      become: true
+    - name: Read /proc/mounts content
+      ansible.builtin.slurp:
+        src: /proc/mounts
+      register: mounts_content
+
+    - name: Process mount information
+      ansible.builtin.set_fact:
+        mount_output:
+          stdout_lines: "{{ (mounts_content['content'] | b64decode).split('\n') | select('search', '/dev/gdg') | list }}"
 
     - name: Check if VDs are used by LVM
       ansible.builtin.command: "lvs --noheadings -o lv_path,devices"
@@ -78,7 +81,7 @@
       - {{ (dg_list.Result | default([])) | length }} DGs
       - {{ (pd_list.Result | default([])) | length }} PDs
       - ZFS pools: {{ zfs_pools_to_remove | default([]) | join(', ') }}
-      This action cannot be undone. Are you sure you want to proceed? (yes/no)
+      This action cannot be undone. Are you sure you want to proceed? (yes/no[Default])
   register: confirm_deletion
   when: not auto_confirm | default(false) | bool
   run_once: true
@@ -96,6 +99,7 @@
         - '"filesystem is busy" not in zfs_unmount_result.stderr'
         - '"no datasets available" not in zfs_unmount_result.stderr'
       changed_when: zfs_unmount_result.rc == 0
+      when: zfs_pools_to_remove | default([]) | length > 0
 
     - name: Export ZFS pools using Graid devices
       ansible.builtin.command: "zpool export {{ item }}"
@@ -110,8 +114,9 @@
         - zpool_export_result.rc == 0
       loop_control:
         label: "{{ item }}"
+      when: zfs_pools_to_remove | default([]) | length > 0
 
-    - name: Destroy ZFS pools using GRAID devices
+    - name: Destroy ZFS pools using Graid devices
       ansible.builtin.command: "zpool destroy {{ item }}"
       loop: "{{ zfs_pools_to_remove }}"
       become: true
@@ -124,13 +129,14 @@
         - zpool_destroy_result.rc == 0
       loop_control:
         label: "{{ item }}"
+      when: zfs_pools_to_remove | default([]) | length > 0
 
     - name: Display mount output for debugging
       ansible.builtin.debug:
         var: mount_output
 
     - name: Unmount VDs
-      ansible.builtin.command: "umount {{ item.split()[2] }}"
+      ansible.builtin.command: "umount {{ item.split()[1] }}"
       loop: "{{ mount_output.stdout_lines | default([]) }}"
       when: "'/dev/gdg' in item"
       become: true
@@ -142,7 +148,7 @@
       changed_when:
         - unmount_result.rc == 0
       loop_control:
-        label: "{{ item.split()[2] }}"
+        label: "{{ item.split()[1] }}"
 
     - name: Remove LVM logical volumes using VDs
       ansible.builtin.command: "lvremove -f {{ item.split()[0] }}"

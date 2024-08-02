@@ -63,12 +63,30 @@
   ansible.builtin.set_fact:
     vd_list: "{{ (graidctl_ls_vd_output.stdout | from_json).Result | map(attribute='VdId') | list }}"
 
+- name: Debug values
+  ansible.builtin.debug:
+    msg:
+      - "configure_vd_size length: {{ configure_vd_size | length }}"
+      - "create_vd_results: {{ create_vd_results.results}}"
+      - "create_vd_results changed count: {{ create_vd_results.results | selectattr('changed', 'equalto', true) | list | length }}"
+      - "create_full_vd_results changed count: {{ create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length }}"
+      - "Condition 1: {{ configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
+      - "Condition 2: {{ configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
+      - "Final result: {{ (configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) or
+        (configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) }}"
+
+- name: Debug detailed results
+  ansible.builtin.debug:
+    msg:
+      - "create_vd_results: {{ create_vd_results | to_nice_json }}"
+      - "create_full_vd_results: {{ create_full_vd_results | to_nice_json }}"
+
 - name: Verify virtual drives were created
   ansible.builtin.fail:
     msg: "Failed to create any virtual drives."
   when:
-    - (configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) or
-      (configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0)
+    - (configure_vd_size | length > 0 and create_vd_results.results | map(attribute='rc') | list | max != 0) or
+      (configure_vd_size | length == 0 and create_full_vd_results.results | map(attribute='rc') | list | max != 0)
 
 - name: Debug output of created virtual drives
   ansible.builtin.debug:

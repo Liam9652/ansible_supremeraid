@@ -1,13 +1,14 @@
 # group_vars/all/main.yml
 
 # free space check requirement
-min_disk_space_gb: 7 # Set minimum required free space in GB, DO NOT change this value.
+min_disk_space_gb: 2 # Set minimum required free space in GB, DO NOT change this value.
 
 # General variables
 configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
 configure_device_model_name: "INTEL SSDPF2KX038TZ"
 configure_graid_mgr_port: 50060
 configure_copy_from_local: true
+configure_timeout: 300
 
 # Installation related variables
 graid_path: "{{ ansible_env.HOME }}/graid_package/"

@@ -50,7 +50,6 @@
 
 - name: Determine execute or not
   when: installation_type | int != 0 or  driver_conf_stats.stat.exists is not defined or not driver_conf_stats.stat.exists
-
   block:
     - name: Check if the old_installation-installer log file exists
       ansible.builtin.stat:
@@ -73,7 +72,7 @@
 
     - name: Run the installer
       ansible.builtin.command: "bash {{ installer_path }} --accept-license"
-      async: 1800
+      async: "{{ configure_timeout | int * 5 }}"
       poll: 0
       register: install_result
       changed_when: false
@@ -82,16 +81,19 @@
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
         state: present
-        timeout: 300
+        timeout: "{{ configure_timeout  }}"
 
     - name: Monitor installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
         search_regex: "\\[INFO\\] Asking reboot\\?"
-        timeout: 1800 # 180 * 10 seconds = 1800 seconds = 30 minutes
+        timeout: "{{ configure_timeout | int / 10 }}" # 180 * 10 seconds = 1800 seconds = 30 minutes
       register: log_content
       become: true
+      retries: 180
+      delay: 10
       ignore_unreachable: true
+      until: log_content is succeeded
 
     - name: Clear host errors
       ansible.builtin.meta: clear_host_errors
@@ -99,7 +101,7 @@
     - name: Wait for the server to finish rebooting
       ansible.builtin.wait_for_connection:
         delay: 30
-        timeout: 300
+        timeout: "{{ configure_timeout  }}"
 
     - name: Check network connectivity after installer
       ansible.builtin.ping:
@@ -111,7 +113,7 @@
         host: "{{ inventory_hostname }}"
         port: 22
         delay: 30
-        timeout: 1200
+        timeout: "{{ configure_timeout | int * 5  }}"
         state: started
       when: ping_result_after_installer is failed
       ignore_unreachable: true

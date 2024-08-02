@@ -86,7 +86,7 @@
 
 - name: Display all available models
   ansible.builtin.debug:
-    msg: "All available models: NVMe: {{ nvme_models | join(', ') }}, SCSI: {{ scsi_models | join(', ') }}"
+    msg: "All available models:\n NVMe: [{{ nvme_models | join(', ') }}],\n SCSI: [{{ scsi_models | join(', ') }}]"
 
 - name: Prompt for model name if by_model_input
   ansible.builtin.pause:
