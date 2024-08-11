@@ -1,2 +1,100 @@
 ---
 # tasks file for edit_dg
+
+- name: Validate configs
+  ansible.builtin.include_tasks: create/validate_configs.yml
+
+- name: Query drive groups
+  become: true
+  ansible.builtin.command: graidctl ls dg --format=json
+  register: dg_query_output
+  changed_when: false
+
+- name: Parse drive group information
+  ansible.builtin.set_fact:
+    dg_info: "{{ (dg_query_output.stdout | from_json).Result | map(attribute='DgId') | list }}"
+
+- name: Set the VMC
+  become: true
+  when: configure_dg_pd_vwc == "on"
+  block:
+    - name: Edit VMC value
+      ansible.builtin.command: >
+        graidctl edit dg {{ item }} pd_vwc {{ configure_dg_pd_vwc }}
+      loop: "{{ dg_info }}"
+      register: vmc_result
+      notify: Restart graid server
+      changed_when: "'successfully' in vmc_result.stdout"
+
+    - name: Check if VMC was changed
+      ansible.builtin.set_fact:
+        vmc_changed: "{{ vmc_result.results | map(attribute='changed') | select('true') | list | length > 0 }}"
+
+- name: Set the journal
+  become: true
+  when: configure_dg_journal != "degrade_only"
+  ansible.builtin.command: >
+    graidctl edit dg {{ item }} journal {{ configure_dg_journal }}
+  loop: "{{ dg_info }}"
+  register: journal_result
+  changed_when: "'successfully' in journal_result.stdout"
+
+- name: Set DG spped
+  become: true
+  when: >
+    configure_dg_rebuild_speed != "high" or
+    configure_dg_init_speed != "high" or
+    configure_dg_cc_speed != "high" or
+    configure_dg_resync_speed != "high"
+  block:
+    - name: Edit rebuild speed
+      ansible.builtin.command: >
+        graidctl edit dg {{ item }} rebuild_speed {{ configure_dg_rebuild_speed }}
+      loop: "{{ dg_info }}"
+      register: rebuild_result
+      when: configure_dg_rebuild_speed != "high"
+      changed_when: "'successfully' in rebuild_result.stdout"
+
+    - name: Edit dg init speed
+      ansible.builtin.command: >
+        graidctl edit dg {{ item }} init_speed {{ configure_dg_init_speed }}
+      loop: "{{ dg_info }}"
+      register: init_result
+      when: configure_dg_init_speed != "high"
+      changed_when: "'successfully' in init_result.stdout"
+
+    - name: Edit cc speed
+      ansible.builtin.command: >
+        graidctl edit dg {{ item }} cc_speed {{ configure_dg_cc_speed }}
+      loop: "{{ dg_info }}"
+      register: cc_result
+      when: configure_dg_cc_speed != "high"
+      changed_when: "'successfully' in cc_result.stdout"
+
+    - name: Edit resync speed
+      ansible.builtin.command: >
+        graidctl edit dg {{ item }} resync_speed {{ configure_dg_resync_speed }}
+      loop: "{{ dg_info }}"
+      register: resync_result
+      when: configure_dg_resync_speed != "high"
+      changed_when: "'successfully' in resync_result.stdout"
+
+- name: Set consistency check
+  become: true
+  when: configure_cc_mode
+  block:
+    - name: Set the consistency check policy
+      ansible.builtin.command: >
+        graidctl set consistency_check policy {{ configure_cc_policy }}
+      register: set_cc_result
+      changed_when: "'successfully' in set_cc_result.stdout"
+
+    - name: Set the consistency check schedule
+      ansible.builtin.command: >
+        {% if configure_cc_schedule == "off" %}
+           graidctl set consistency_check schedule_mode {{ configure_cc_schedule }}
+         {% else %}
+           graidctl set consistency_check schedule_mode {{ configure_cc_schedule }} {{ '%Y/%m/%d' | strftime }} 00
+         {% endif %}
+      register: set_cc_result
+      changed_when: "'successfully' in set_cc_result.stdout"

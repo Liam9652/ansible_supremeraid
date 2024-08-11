@@ -12,3 +12,10 @@
   when: ansible_facts['os_family'] == "RedHat"
   register: firewall_reload_result
   changed_when: "'success' in firewall_reload_result.stdout"
+
+- name: Restart graid server
+  become: true
+  ansible.builtin.service:
+    name: graid.service
+    state: restarted
+  when: vmc_changed | bool

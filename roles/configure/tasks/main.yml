@@ -28,3 +28,14 @@
   tags:
     - delete
   when: configure_delete_raid
+
+
+- name: Edit drive_group
+  ansible.builtin.include_tasks: common/edit_dg.yml
+  args:
+    apply:
+      tags:
+        - edit_dg
+  tags:
+    - edit_dg
+  when: configure_edit_dg | bool

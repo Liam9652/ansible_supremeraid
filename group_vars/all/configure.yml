@@ -7,8 +7,8 @@ valid_raid_type:
   - raid5
   - raid6
   - raid10
-configure_vd_size: ""
-configure_vd_counts: 1
+configure_vd_size: "100MB"
+configure_vd_counts: 5
 
 configure_delete_raid: false
 
@@ -23,6 +23,23 @@ valid_pd_attributes:
   - NQN
 
 configure_dg_foreground_init: false
+
+configure_edit_dg: false
+configure_cc_mode: false
+configure_cc_schedule: "off"
+valid_cc_schedule:
+  - "off"
+  - "continuously"
+  - "hourly"
+  - "daily"
+  - "weekly"
+  - "monthly"
+
+configure_cc_policy: "stop_on_error"
+valid_cc_policy:
+  - stop_on_error
+  - auto_fix
+
 configure_dg_pd_vwc: "off"
 valid_dg_pd_vwc:
   - "on"
