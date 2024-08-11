@@ -1,3 +1,9 @@
+# This script is a Python program used to set up an Ansible environment. 
+# It reads configuration settings from a file, checks network connectivity, 
+# sets up SSH keyless login, downloads Miniconda, and installs the required environment 
+# and dependencies on remote hosts. The script supports parallel processing for 
+# setting up multiple hosts and logs detailed information throughout the process.
+
 #!/usr/bin/env python3
 
 import os
@@ -8,6 +14,9 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime
+import getpass
+import shutil
+import argparse
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,16 +45,90 @@ logging.basicConfig(level=logging.INFO,
                     handlers=[logging.FileHandler(log_file), logging.StreamHandler()])
 
 logger = logging.getLogger(__name__)
+parser = argparse.ArgumentParser()
+parser.add_argument("-p", "--password", help="SSH password")
+args = parser.parse_args()
+args_pw = args.password
+
+
+
 
 def run_command(command, check=True, shell=False):
     try:
         result = subprocess.run(command, check=check, shell=shell, text=True, capture_output=True)
-        return result.stdout
+        return result.stdout, result.stderr, result.returncode
     except subprocess.CalledProcessError as e:
         logger.error(f"Command failed: {e.cmd}")
         logger.error(f"Error output: {e.stderr}")
-        if check:
-            raise
+        return None, e.stderr, e.returncode
+
+def transfer_files(source_files, destination, use_scp=False):
+    host, remote_path = destination.split(':', 1)
+    if not ensure_remote_directory(host, remote_path):
+        raise Exception(f"Failed to create remote directory {remote_path} on {host}")
+
+    if not use_scp and shutil.which('rsync'):
+        command = ['rsync', '-avz', '--progress'] + source_files + [destination]
+    else:
+        command = ['scp', '-r'] + source_files + [destination]
+    
+    stdout, stderr, returncode = run_command(command, check=False)
+    if returncode != 0:
+        logger.error(f"File transfer failed. Command: {' '.join(command)}")
+        logger.error(f"Error output: {stderr}")
+        raise subprocess.CalledProcessError(returncode, command, stderr)
+    return stdout
+
+
+def retry_with_scp(func, *args, **kwargs):
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt + 1 < max_retries:
+                logger.info(f"Retrying in 5 seconds...")
+                subprocess.run(['sleep', '5'])
+            elif attempt + 1 == max_retries and not kwargs.get('use_scp', False):
+                logger.info("Retrying with scp...")
+                kwargs['use_scp'] = True
+                return retry_with_scp(func, *args, **kwargs)
+            else:
+                logger.error(f"All {max_retries} attempts failed")
+                raise
+
+def ensure_remote_directory(host, remote_path):
+    try:
+        # Check if the directory exists and is writable
+        check_dir_command = f"ssh {host} '[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable'"
+        stdout, stderr, returncode = run_command(check_dir_command, shell=True, check=False)
+        
+        if returncode != 0:
+            logger.error(f"Failed to check remote directory. Error: {stderr}")
+            return False
+
+        if "exists_writable" in stdout:
+            logger.info(f"Directory {remote_path} exists and is writable on {host}. Clearing its contents...")
+            clear_dir_command = f"ssh {host} 'rm -rf {remote_path}/*'"
+            _, stderr, returncode = run_command(clear_dir_command, shell=True, check=False)
+            if returncode != 0:
+                logger.error(f"Failed to clear directory contents. Error: {stderr}")
+                return False
+            logger.info(f"Contents of {remote_path} on {host} have been cleared.")
+        else:
+            logger.info(f"Creating remote directory {remote_path} on {host}...")
+            create_dir_command = f"ssh {host} 'mkdir -p {remote_path} && chmod 755 {remote_path}'"
+            _, stderr, returncode = run_command(create_dir_command, shell=True, check=False)
+            if returncode != 0:
+                logger.error(f"Failed to create remote directory. Error: {stderr}")
+                return False
+            logger.info(f"Remote directory {remote_path} created on {host}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to manage remote directory {remote_path} on {host}. Error: {str(e)}")
+        return False
 
 def check_network(host):
     try:
@@ -58,18 +141,35 @@ def check_network(host):
         logger.warning(f"Ping output:\n{e.output}")
         return False
 
-def retry(func, *args, **kwargs):
-    for attempt in range(config['max_retries']):
+def setup_ssh_keyless(hosts):
+    logger.info("Setting up SSH keyless authentication...")
+    if args_pw is  None:
+        password = getpass.getpass("Enter the common password for all hosts: ")
+    else:
+        password = args_pw
+
+    for host in hosts:
         try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt + 1 < config['max_retries']:
-                logger.info(f"Retrying in {config['retry_delay']} seconds...")
-                subprocess.run(['sleep', str(config['retry_delay'])])
+            # Check if SSH key already exists, if not generate one
+            key_path = os.path.expanduser('~/.ssh/id_rsa')
+            if not os.path.exists(key_path):
+                logger.info("Generating SSH key...")
+                subprocess.run(['ssh-keygen', '-t', 'rsa', '-N', '-f', key_path], check=True)
+
+            # Use sshpass with ssh-copy-id
+            logger.info(f"Copying SSH key to {host}...")
+            remove_known_host = f"ssh-keygen -R {host}"
+            copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no root@{host}"
+            subprocess.run(remove_known_host, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            result = subprocess.run(copy_id, shell=True, text=True, capture_output=True, check=False)
+            
+            if result.returncode == 0:
+                logger.info(f"SSH key successfully copied to {host}")
             else:
-                logger.error(f"All {config['max_retries']} attempts failed")
-                raise
+                logger.error(f"Failed to copy SSH key to {host}: {result.stderr}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to set up SSH keyless authentication for {host}: {str(e)}")
 
 def download_miniconda():
     miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh"
@@ -160,8 +260,9 @@ echo "{graid_path}/run_in_graid_env.sh"
         logger.info(f"Using Miniconda installer: {miniconda_installer}")
         logger.info(f"Remote setup script: {remote_setup_path}")
         
-        retry(run_command, ['rsync', '-avz', '--progress', str(miniconda_installer), str(remote_setup_path), f"{host}:{graid_path}/"])
-        
+        retry_with_scp(transfer_files, 
+                            [str(miniconda_installer), str(remote_setup_path)], 
+                            f"{host}:{graid_path}/")        
         # Execute remote setup script and capture the output
         ssh_command = f"bash -x {graid_path}/remote_setup.sh"
         result = subprocess.run(['ssh', host, ssh_command], capture_output=True, text=True)
@@ -235,6 +336,7 @@ def main():
 
     logger.info(f"Using inventory file: {inventory_path}")
 
+
     hosts = []
     current_group = None
     with open(inventory_path, 'r') as f:
@@ -253,7 +355,9 @@ def main():
     if not hosts:
         logger.error("No hosts found in the inventory file.")
         sys.exit(1)
-
+    # Setup SSH keyless authentication
+    setup_ssh_keyless(hosts)
+    
     logger.info(f"Starting setup for {len(hosts)} hosts...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=config['max_parallel_hosts']) as executor:
@@ -283,5 +387,4 @@ def main():
     # logger.info(f"Use 'conda activate {config['conda_env_name']}' before running Ansible commands.")
 
 if __name__ == "__main__":
-    # run_update_link_script()
     main()
