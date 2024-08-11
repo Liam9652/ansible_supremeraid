@@ -20,6 +20,7 @@
       Enter your choice (1, 2, or 3):
   register: user_choice
   run_once: true
+  when: not auto_confirm | default(false)
 
 # - name: Set selected model
 #   ansible.builtin.set_fact:
@@ -52,7 +53,9 @@
 - name: Set creation method based on user input or default
   ansible.builtin.set_fact:
     creation_method: >-
-      {% if user_choice.user_input | trim == '1' %}
+      {% if auto_confirm | default(false) %}
+        {{ configure_device_model_name }}
+      {% elif user_choice.user_input | trim == '1' %}
         {{ user_choice.user_input | trim }}
       {% elif user_choice.user_input | trim == '2' or user_choice.user_input | trim == '' %}
         {{ configure_device_model_name }}
@@ -102,12 +105,30 @@
 - name: Filter devices based on selected model
   ansible.builtin.set_fact:
     filtered_devices: >-
-      {% if user_choice.user_input | int == 3 %}
+      {% if auto_confirm | default(false) %}
+        {% set filtered = {} %}
+        {% for device_type, devices in all_devices.items() %}
+          {% set filtered_type = devices | selectattr('Model', 'equalto', configure_device_model_name) | list %}
+          {% if filtered_type %}
+            {% set _ = filtered.update({device_type: filtered_type}) %}
+          {% endif %}
+        {% endfor %}
+        {{ filtered }}
+      {% elif user_choice.user_input | int == 3 %}
         {{ all_devices }}
-      {% else %}
+      {% elif user_choice.user_input | int == 1 %}
         {% set filtered = {} %}
         {% for device_type, devices in all_devices.items() %}
           {% set filtered_type = devices | selectattr('Model', 'equalto', model_input.user_input) | list %}
+          {% if filtered_type %}
+            {% set _ = filtered.update({device_type: filtered_type}) %}
+          {% endif %}
+        {% endfor %}
+        {{ filtered }}
+      {% elif user_choice.user_input | int == 2  %}
+        {% set filtered = {} %}
+        {% for device_type, devices in all_devices.items() %}
+          {% set filtered_type = devices | selectattr('Model', 'equalto', configure_device_model_name) | list %}
           {% if filtered_type %}
             {% set _ = filtered.update({device_type: filtered_type}) %}
           {% endif %}
