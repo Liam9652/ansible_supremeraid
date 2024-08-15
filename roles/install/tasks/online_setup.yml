@@ -123,14 +123,15 @@
 
     - name: Unload module
       community.general.modprobe:
-        name:
-          - graid_nvidia
-          - graid
-          - nvidia_uvm
-          - nvidia_drm
-          - nvidia_modeset
-          - nvidia
+        name: "{{ item }}"
         state: absent
+      loop:
+        - graid_nvidia
+        - graid
+        - nvidia_uvm
+        - nvidia_drm
+        - nvidia_modeset
+        - nvidia
 
     - name: Check if the nvidia-installer log file exists
       ansible.builtin.stat:

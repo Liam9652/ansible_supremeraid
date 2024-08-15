@@ -144,14 +144,14 @@
     - name: Unload module
       community.general.modprobe:
         name: "{{ item }}"
-        loop:
-          - graid_nvidia
-          - graid
-          - nvidia_uvm
-          - nvidia_drm
-          - nvidia_modeset
-          - nvidia
         state: absent
+      loop:
+        - graid_nvidia
+        - graid
+        - nvidia_uvm
+        - nvidia_drm
+        - nvidia_modeset
+        - nvidia
 
     - name: Uninstall NVIDIA driver (Debian/Ubuntu)
       ansible.builtin.apt:
