@@ -91,9 +91,9 @@ This project is licensed under the [Your License] - see the LICENSE.md file for 
 
    b. Modify the configuration:
 
-   - Adjust the basic parameters in `/group_vars/all/main.yml`.
+   - Adjust the basic parameters in the section `setup` `/group_vars/all/main.yml`.
 
-   - Adjust RAID parameters according to your requirements in `/group_vars/all/configure.yml`.
+   - Adjust RAID parameters according to your requirements in the section `configure` of `/group_vars/all/main_yml`.
 
    c. Prepare the license mapping file:
 
@@ -136,10 +136,12 @@ Use tags to run specific parts of the playbook:
   - `copy`: Copy files
   - `setup`: Set up environment
   - `driver`: Install driver
+  - `update`: Update driver
 - `configure`: Run configuration tasks
   - `activate`: Activate service
   - `raid`: Configure RAID
   - `delete`: Delete RAID
+  - `edit_dg`: Edit DG
 
 
 Example: 
@@ -153,7 +155,7 @@ ansible-playbook playbook.yaml --tags raid
 To delete RAID configuration:
 
 ```
-ansible-playbook playbook.yaml --tags delete --extra-vars "configure_delete_raid=true"
+ansible-playbook -i inventory/hosts playbook.yaml --tags delete --extra-vars '{"configure": {"raid": {"delete": true}}}' 
 ```
 
 

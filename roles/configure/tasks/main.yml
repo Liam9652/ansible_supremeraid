@@ -17,7 +17,7 @@
         - raid
   tags:
     - raid
-  when: not configure_delete_raid
+  when: not configure_raid.delete | default(false)  | bool
 
 - name: Uncompose RAID
   ansible.builtin.include_tasks: delete_raid.yml
@@ -27,7 +27,7 @@
         - delete
   tags:
     - delete
-  when: configure_delete_raid
+  when: configure_raid.delete | default(false)  | bool
 
 
 - name: Edit drive_group
@@ -38,4 +38,32 @@
         - edit_dg
   tags:
     - edit_dg
-  when: configure_edit_dg | bool
+  when: configure_raid.edit | default(false)  | bool
+
+- name: Setup NVMe-of initiator
+  ansible.builtin.include_tasks: nvme_of/initiator.yml
+  args:
+    apply:
+      tags:
+        - nvmeof
+        - initiator
+  tags:
+    - initiator
+    - nvmeof
+  when:
+    - configure_nvme_of.initiator | default(false)  | bool
+    - not  configure_nvme_of.target | default(false)  | bool
+
+- name: Setup NVMe-of target
+  ansible.builtin.include_tasks: nvme_of/target.yml
+  args:
+    apply:
+      tags:
+        - nvmeof
+        - target
+  tags:
+    - target
+    - nvmeof
+  when:
+    - not configure_nvme_of.initiator | default(false)  | bool
+    - configure_nvme_of.target | default(false)  | bool

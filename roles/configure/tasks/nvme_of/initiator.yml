@@ -1,0 +1,105 @@
+---
+# tasks file for initiator.yml
+- name: Connnect the nvme-of devices by {{ configure_nvme_of.ip_addr }}
+  become: true
+  when: configure_nvme_of.connect | default(false) | bool
+  block:
+    - name: Validate ports configuration
+      ansible.builtin.assert:
+        that:
+          - configure_nvme_of.ports | type_debug == "list"
+          - configure_nvme_of.ports | length > 0
+        fail_msg: "Ports must be a non-empty list"
+
+    - name: Validate target interfaces configuration
+      ansible.builtin.assert:
+        that:
+          - configure_nvme_of.target_interface | type_debug == "list"
+          - configure_nvme_of.target_interface | length > 0
+        fail_msg: "Target interfaces must be a non-empty list"
+
+    - name: Get list of loaded kernel modules
+      ansible.builtin.command: lsmod
+      register: lsmod_output
+      changed_when: false
+
+    - name: Check if NVMe-oF modules are loaded
+      ansible.builtin.set_fact:
+        module_status: "{{ module_status | default({}) | combine({item: item in (lsmod_output.stdout_lines | map('regex_search', '^(\\S+)') | select('string') | list)}) }}"
+      loop:
+        - nvmet_tcp
+        - nvmet_rdma
+
+    - name: Display module status
+      ansible.builtin.debug:
+        msg: "Module {{ item.key }} is {{ 'loaded' if item.value else 'not loaded' }}"
+      loop: "{{ module_status | dict2items }}"
+
+    - name: Load NVMe-oF modules if not present
+      community.general.modprobe:
+        name: "{{ item.key }}"
+        state: present
+      loop: "{{ module_status | dict2items }}"
+      when: not item.value
+
+    - name: Discovery to NVMe-of target devices
+      ansible.builtin.command: >
+        nvme discover
+        -t {{ configure_nvme_of.transport_type }}
+        -s {{ item }}
+        -a {{ configure_nvme_of.ip_addr }}
+        --output-format=json
+      register: nvmet_discover
+      loop: "{{ configure_nvme_of.ports }}"
+      changed_when: nvmet_discover.rc == 0
+
+    - name: Validate target drives were found
+      when: nvmet_discover.rc != 0
+      ansible.builtin.assert:
+        that:
+          - >-
+            nvmet_discover.rc == 0
+        fail_msg: >-
+          Target devices cannot be found,
+          or the connection could not be established.
+          Please verify the settings on the target side.
+
+    - name: Connnect to the target device
+      when: nvmet_discover.rc == 0
+      ansible.builtin.command: >
+        graidctl connect remote_target
+        {{ configure_nvme_of.transport_type }}
+        {{ configure_nvme_of.ip_addr }}
+        {{ configure_nvme_of.addr_family }}
+        {{ item }}
+      register: nvmet_connect_result
+      loop: "{{ configure_nvme_of.ports }}"
+      changed_when: false
+
+    - name: Debug
+      ansible.builtin.debug:
+        msg: "{{ nvmet_connect_result.rc }}"
+
+    - name: Run NVMe-oF create tasks
+      ansible.builtin.include_tasks: initiator_create.yml
+      when: nvmet_connect_result.rc |int == 0
+
+- name: Disconnnect the nvme-of devices by {{ configure_nvme_of.ip_addr }}
+  become: true
+  when: not configure_nvme_of.connect | default(false)  | bool
+  block:
+    - name: Query existing remote target
+      ansible.builtin.command: sudo graidctl ls rt --format=json
+      become: true
+      register: existing_rt_output
+      changed_when: false
+
+    - name: Parse existing remote target
+      ansible.builtin.set_fact:
+        existing_rt_list: "{{ (existing_rt_output.stdout | from_json).Result | map(attribute='TargetID') | list }}"
+
+    - name: Disconnnect remote target
+      ansible.builtin.command: >
+        graidctl disconnect remote_target {{ item }}
+      loop: "{{ existing_rt_list }}"
+      changed_when: false

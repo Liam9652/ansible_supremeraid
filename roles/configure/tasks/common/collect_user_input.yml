@@ -1,14 +1,45 @@
 ---
 - name: Set default values for variables
   ansible.builtin.set_fact:
-    configure_raid_type: "{{ configure_raid_type | default('raid5') }}"
-    configure_device_model_name: "{{ configure_device_model_name | default('QEMU NVMe Ctrl') }}"
-    configure_device_count: "{{ configure_device_count | default('') }}"
-    configure_vd_size: "{{ configure_vd_size | default('') }}"
-    configure_create_by_numa: "{{ configure_create_by_numa | default(false) }}"
-    configure_create_by_socket: "{{ configure_create_by_socket | default('') }}"
-    configure_dg_foreground_init: "{{ configure_dg_foreground_init | default(false) }}"
-    configure_vd_counts: "{{ configure_vd_counts | default(1) | int }}"
+    configure: "{{ configure | default({}) }}"
+    general: "{{ general | default({}) }}"
+
+- name: Set default values for nested variables
+  ansible.builtin.set_fact:
+    configure: >-
+      {{
+        configure | combine({
+          'raid': configure_raid | default({}),
+          'pd': configure_pd | default({}),
+          'disk_group': configure_disk_group | default({})
+        })
+      }}
+
+- name: Set specific default values
+  ansible.builtin.set_fact:
+    configure: >-
+      {{
+        configure | combine({
+          'raid': configure_raid | combine({
+            'type': configure_raid.type | default('raid5'),
+            'vd_size': configure_raid.vd_size | default(''),
+            'vd_counts': configure_raid.vd_counts | default(1) | int
+          }),
+          'pd': configure_pd | combine({
+            'create_by_numa': configure_pd.create_by_numa | default(false),
+            'create_by_socket': configure_pd.create_by_socket | default('')
+          }),
+          'disk_group': configure_disk_group | combine({
+            'dg_foreground_init': configure_disk_group.dg_foreground_init | default(false)
+          })
+        })
+      }}
+    general: >-
+      {{
+        general | combine({
+          'device_model_name': general.device_model_name | default('QEMU NVMe Ctrl')
+        })
+      }}
 
 - name: Query NVMe devices
   ansible.builtin.command: graidctl ls nd --format json
@@ -51,7 +82,7 @@
     prompt: |
       How would you like to create PDs for devices?
       1. By model name (you will be prompted to enter the model name)
-      2. Use value from vars/main.yml ({{ configure_device_model_name }})
+      2. Use value from vars/main.yml ({{ general.device_model_name }})
       3. All devices
       4. Custom selection for each host
       Enter your choice (1, 2, 3, or 4):
@@ -86,7 +117,7 @@
       {% if creation_method == '1' %}
         {{ model_input.user_input | default('') | trim }}
       {% elif creation_method == '2' %}
-        {{ configure_device_model_name }}
+        {{ general.device_model_name }}
       {% elif creation_method == '3' %}
         all
       {% else %}
@@ -121,6 +152,7 @@
       - "creation_method: {{ creation_method | default('undefined') }}"
       - "device_model_name: {{ device_model_name | default('undefined') }}"
       - "host_device_selection: {{ host_device_selection | default('undefined') }}"
+      - "configure: {{ configure | to_nice_yaml }}"
 
 - name: Share user input across all hosts
   ansible.builtin.set_fact:

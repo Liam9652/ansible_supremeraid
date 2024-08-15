@@ -1,0 +1,25 @@
+---
+# tasks file for initiator_create.yml
+- name: Set NVMe-oF specific variables
+  ansible.builtin.set_fact:
+    general:
+      device_model_name: "Linux"
+    auto_confirm: true
+
+- name: Include identify_system role
+  ansible.builtin.include_tasks: ../prepare/tasks/identify_system.yml
+
+# - name: Validate configs
+#   ansible.builtin.include_tasks: create/validate_configs.yml
+
+- name: Set default values and query devices
+  ansible.builtin.include_tasks: create/prepare_devices.yml
+
+- name: Create physical drives
+  ansible.builtin.include_tasks: create/create_physical_drives.yml
+
+- name: Create drive groups
+  ansible.builtin.include_tasks: create/create_drive_groups.yml
+
+- name: Create virtual drives
+  ansible.builtin.include_tasks: create/create_virtual_drives.yml

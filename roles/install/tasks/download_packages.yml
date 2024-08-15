@@ -3,14 +3,14 @@
 
 - name: Check if the graid_package directory exists
   ansible.builtin.stat:
-    path: "{{ graid_path }}"
+    path: "{{ setup.graid_path }}"
   register: dir_stat
   tags:
     - downloads
 
 - name: Create graid_package directory if it does not exist
   ansible.builtin.file:
-    path: "{{ graid_path }}"
+    path: "{{ setup.graid_path }}"
     state: directory
     mode: "0755"
   become: true
@@ -20,7 +20,7 @@
 
 - name: Check if pre-installer file exists on target
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    path: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
   register: pre_installer_file
   become: true
   tags:
@@ -34,7 +34,7 @@
 
 - name: Check if installer files exist on target
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ item | basename }}"
+    path: "{{ setup.graid_path }}{{ item | basename }}"
   with_items: "{{ linux.installer_urls }}"
   register: installer_files
   tags:
@@ -45,10 +45,10 @@
     cmd: >
       wget
       --no-check-certificate
-      -O "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+      -O "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
       "{{ linux.pre_installer_url }}"
   args:
-    creates: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    creates: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
   register: wget_pre_installer_result
   become: true
   when:
@@ -59,7 +59,7 @@
 
 - name: Set correct permissions for pre-installer
   ansible.builtin.file:
-    path: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    path: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
     mode: "0755"
   become: true
   when: wget_pre_installer_result is changed
@@ -68,7 +68,7 @@
 
 - name: Verify downloaded pre-installer
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    path: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
   register: downloaded_pre_installer
   when: wget_pre_installer_result is changed
   tags:
@@ -88,10 +88,10 @@
     cmd: >
       wget
       --no-check-certificate
-      -O "{{ graid_path }}{{ item | basename }}"
+      -O "{{ setup.graid_path }}{{ item | basename }}"
       "{{ item }}"
   args:
-    creates: "{{ graid_path }}{{ item | basename }}"
+    creates: "{{ setup.graid_path }}{{ item | basename }}"
   register: wget_installer_result
   become: true
   when:
@@ -105,7 +105,7 @@
 
 - name: Set correct permissions for downloaded installers
   ansible.builtin.file:
-    path: "{{ graid_path }}{{ item | basename }}"
+    path: "{{ setup.graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ linux.installer_urls }}"
   become: true
@@ -115,7 +115,7 @@
 
 - name: Verify downloaded installer files
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ item | basename }}"
+    path: "{{ setup.graid_path }}{{ item | basename }}"
   register: downloaded_installers
   loop: "{{ linux.installer_urls }}"
   become: true

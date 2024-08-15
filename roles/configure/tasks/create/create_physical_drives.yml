@@ -1,10 +1,10 @@
 ---
-- name: Check file existence
+- name: Check prepared_devices file existence
   ansible.builtin.stat:
     path: /tmp/prepared_devices.json
   register: file_stat
 
-- name: Display file stat
+- name: Display prepared_devices file stat
   ansible.builtin.debug:
     var: file_stat
 
@@ -67,7 +67,7 @@
     }) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
   when:
-    - configure_create_by_numa | bool
+    - configure_pd.create_by_numa| bool
     - item.PdId in newly_added_pd_list
 
 - name: Group newly added physical drives by CPU socket
@@ -77,13 +77,13 @@
     }) }}"
   loop: "{{ (new_pd_output.stdout | from_json).Result }}"
   when:
-    - configure_create_by_socket | int > 0
+    - configure_pd.create_by_socket | int > 0
     - item.PdId in newly_added_pd_list
 
 - name: Group all newly added physical drives together
   ansible.builtin.set_fact:
     pd_list_all: "{{ newly_added_pd_list }}"
-  when: not configure_create_by_numa and configure_create_by_socket | int == 0
+  when: not configure_pd.create_by_numa and configure_pd.create_by_socket | int == 0
 
 - name: Debug output of newly added PDs
   ansible.builtin.debug:

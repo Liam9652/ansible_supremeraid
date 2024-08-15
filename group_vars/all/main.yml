@@ -1,37 +1,118 @@
-# group_vars/all/main.yml
-
-# free space check requirement
-min_disk_space_gb: 2 # Set minimum required free space in GB, DO NOT change this value.
-
 # General variables
-configure_license_mapping_csv: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
-configure_device_model_name: "INTEL SSDPF2KX038TZ"
-configure_graid_mgr_port: 50060
-configure_copy_from_local: true
-configure_timeout: 300
+general:
+  license_table_path: "{{ playbook_dir }}/roles/configure/files/license_mapping.csv"
+  device_model_name: "QEMU NVMe Ctrl"
+  graid_mgr_ports: 50060
+  copy_from_local: true
+  timeout: 300
+  min_disk_space_gb: 2 # Minimum required free space in GB, DO NOT change this value.
 
-# Installation related variables
-graid_path: "{{ ansible_env.HOME }}/graid_package/"
-install_mode: "offline"
-remote_os: "linux"
+# Setup configuration
+setup:
+  graid_path: "{{ ansible_env.HOME }}/graid_package/"
+  install_mode: "offline"
+  remote_os: "linux"
+  miniconda_version: "latest"
+  conda_env_name: "graid_ansible_env"
+  python_version: "3.11"
+  inventory_file: "ansible_supremeraid/inventory/hosts"
+  log_dir: "logs"
+  ping_count: 3
+  ping_timeout: 5
+  max_retries: 3
+  retry_delay: 5
 
-# Miniconda version and environment name
-miniconda_version: "latest"
-conda_env_name: "graid_ansible_env"
-python_version: "3.11"
-inventory_file: "ansible_supremeraid/inventory/hosts"
-log_dir: "logs"
+# Main configuration
+configure_pd:
+  create_by_numa: false
+  create_by_socket: ""
+  create_attribute: "NQN"
+  sorting: "Address"
 
-# Network settings
-ping_count: 3
-ping_timeout: 5
+configure_raid:
+  type: "raid0"
+  vd_size: "100MB"
+  vd_counts: 5
+  delete: false
+  dg_foreground_init: false
 
-# Retry settings
-max_retries: 3
-retry_delay: 5
+configure_consistency_check:
+  mode: false
+  schedule: "off"
+  policy: "stop_on_error"
 
-# Parallel execution
-max_parallel_hosts: 5
-# Paths
-# inventory_file: "ansible_supremeraid/inventory/hosts"
+configure_disk_group:
+  edit_dg: false
+  pd_hotspare: false
+  pd_vwc: "off"
+  spdk_bdev: "disable"
+  journal: "degrade_only"
+  rebuild_speed: "high"
+  init_speed: "high"
+  cc_speed: "high"
+  resync_speed: "high"
 
+configure_import_md:
+  enabled: false
+  devices:
+    - /dev/sda
+    - /dev/sdb
+
+configure_nvme_of:
+  initiator: false
+  target: false
+  connect: false
+  export: false
+  ip_addr: ""
+  ports:
+    - "4420"
+  addr_family: ipv4
+  transport_type: rdma
+  target_interface:
+    - "eth0"
+
+# Valid values for various configuration options
+configure_valid:
+  pd_attributes:
+    - Numa
+    - DevPath
+    - Address
+    - NQN
+  raid_type:
+    - raid0
+    - raid1
+    - raid5
+    - raid6
+    - raid10
+  cc_schedule:
+    - "off"
+    - "continuously"
+    - "hourly"
+    - "daily"
+    - "weekly"
+    - "monthly"
+  cc_policy:
+    - stop_on_error
+    - auto_fix
+  pd_vwc:
+    - "on"
+    - "off"
+  spdk_bdev:
+    - enable
+    - disable
+  journal:
+    - always_off
+    - degrade_only
+    - always_on
+  speed_attributes:
+    - low
+    - normal
+    - high
+    - extreme
+  nvme_of_addr_family:
+    - ipv4
+    - ipv6
+  nvme_of_transport_type:
+    - rdma
+    - tcp
+    - fc

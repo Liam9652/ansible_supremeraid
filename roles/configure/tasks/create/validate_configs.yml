@@ -3,67 +3,67 @@
 - name: Validate boolean parameters
   ansible.builtin.assert:
     that:
-      - configure_pd_hotspare | bool is boolean
-      - configure_delete_raid | bool is boolean
-      - configure_create_by_numa | bool is boolean
-      - configure_edit_dg | bool is boolean
-      - configure_cc_mode | bool is boolean
-      - configure_dg_foreground_init | bool is boolean
+      - configure_disk_group.pd_hotspare| bool is boolean
+      - configure_raid.delete | bool is boolean
+      - configure_pd.create_by_numa | bool is boolean
+      - configure_disk_group.edit_dg | bool is boolean
+      - configure_consistency_check.mode | bool is boolean
+      - configure_raid.dg_foreground_init | bool is boolean
     fail_msg: >
       "The following parameters must be boolean:
-      configure_pd_hotspare: {{ configure_pd_hotspare }},
-      configure_delete_raid: {{ configure_delete_raid }},
-      configure_create_by_numa: {{ configure_create_by_numa }},
-      configure_edit_dg: {{ configure_edit_dg }},
-      configure_cc_mode: {{ configure_cc_mode }},
-      configure_dg_foreground_init: {{ configure_dg_foreground_init }}"
+      configure_disk_group.pd_hotspare: {{ configure_disk_group.pd_hotspare }},
+      configure_raid.delete: {{ configure_raid.delete }},
+      configure_pd.create_by_numa: {{ configure_pd.create_by_numa }},
+      configure_disk_group.edit_dg: {{ configure_disk_group.edit_dg }},
+      configure_consistency_check.mode: {{ configure_consistency_check.mode }},
+      configure_raid.dg_foreground_init: {{ configure_raid.dg_foreground_init }}"
 
 # Validate parameters with predefined options
 - name: Validate list option parameters
   ansible.builtin.assert:
     that:
-      - configure_pd_sorting in valid_pd_attributes
-      - configure_pd_create_attribute in valid_pd_attributes
-      - configure_raid_type in valid_raid_type
-      - configure_dg_pd_vwc in valid_dg_pd_vwc
-      - configure_dg_spdk_bdev in valid_dg_spdk_bdev
-      - configure_dg_journal in valid_dg_journal
-      - configure_cc_schedule in valid_cc_schedule
-      - configure_cc_policy in valid_cc_policy
+      - configure_pd.sorting in configure_valid.pd_attributes
+      - configure_pd.create_attribute in configure_valid.pd_attributes
+      - configure_raid.type in configure_valid.raid_type
+      - configure_disk_group.pd_vwc in configure_valid.pd_vwc
+      - configure_disk_group.spdk_bdev in configure_valid.spdk_bdev
+      - configure_disk_group.journal in configure_valid.journal
+      - configure_consistency_check.schedule in configure_valid.cc_schedule
+      - configure_consistency_check.policy in configure_valid.cc_policy
     fail_msg: >
       Invalid options specified:
-      PD sorting attribute: '{{ configure_pd_sorting }}',
-      PD create attribute: '{{ configure_pd_create_attribute }}',
-      RAID type: '{{ configure_raid_type }}',
-      DG PD VWC: '{{ configure_dg_pd_vwc }}',
-      DG SPDK BDEV: '{{ configure_dg_spdk_bdev }}',
-      DG journal: '{{ configure_dg_journal }}',
-      CC schedule: '{{ configure_cc_schedule }}',
-      CC policy: '{{ configure_cc_policy }}'.
+      PD sorting attribute: '{{ configure_pd.sorting }}',
+      PD create attribute: '{{ configure_pd.create_attribute }}',
+      RAID type: '{{ configure_raid.type }}',
+      DG PD VWC: '{{ configure_disk_group.pd_vwc }}',
+      DG SPDK BDEV: '{{ configure_disk_group.spdk_bdev }}',
+      DG journal: '{{ configure_disk_group.journal }}',
+      CC schedule: '{{ configure_consistency_check.schedule }}',
+      CC policy: '{{ configure_consistency_check.policy }}'.
       Please check the valid options for each parameter.
 
 # Validate DG speed attributes
 - name: Validate DG speed attributes
   ansible.builtin.assert:
     that:
-      - configure_dg_rebuild_speed in valid_dg_speed_attributes
-      - configure_dg_init_speed in valid_dg_speed_attributes
-      - configure_dg_cc_speed in valid_dg_speed_attributes
-      - configure_dg_resync_speed in valid_dg_speed_attributes
-    fail_msg: "Invalid speed setting. Valid options are: {{ valid_dg_speed_attributes | join(', ') }}"
+      - configure_disk_group.rebuild_speed in configure_valid.speed_attributes
+      - configure_disk_group.init_speed in configure_valid.speed_attributes
+      - configure_disk_group.cc_speed in configure_valid.speed_attributes
+      - configure_disk_group.resync_speed in configure_valid.speed_attributes
+    fail_msg: "Invalid speed setting. Valid options are: {{ configure_valid.speed_attributes | join(', ') }}"
 
 # Validate VD count
 - name: Validate configure_vd_counts
   ansible.builtin.assert:
     that:
-      - configure_vd_counts | int > 0
-    fail_msg: "configure_vd_counts must be a positive integer"
+      - configure_raid.vd_counts | int > 0
+    fail_msg: "configure_raid.vd_counts must be a positive integer"
 
 # Validate VD size
 - name: Validate configure_vd_size
   ansible.builtin.assert:
     that:
-      - configure_vd_size | regex_search('^[0-9]+[KMGT]B$') or configure_vd_size == ''
+      - configure_raid.vd_size | regex_search('^[0-9]+[KMGT]B$') or configure_raid.vd_size == ''
     fail_msg: >
       Invalid VD size format. Use format like '500MB', '1GB', '2TB',
       or leave empty for full capacity
@@ -72,5 +72,5 @@
 - name: Validate configure_create_by_socket
   ansible.builtin.assert:
     that:
-      - configure_create_by_socket | regex_search('^[0-9,]*$') or configure_create_by_socket == ""
-    fail_msg: "configure_create_by_socket must be a comma-separated list of numbers or empty"
+      - configure_pd.create_by_socket | regex_search('^[0-9,]*$') or configure_pd.create_by_socket == ""
+    fail_msg: "configure_pd.create_by_socket must be a comma-separated list of numbers or empty"

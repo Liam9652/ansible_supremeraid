@@ -4,34 +4,34 @@
   delegate_to: localhost
   become: true
   ansible.builtin.file:
-    path: "{{ graid_path }}"
+    path: "{{ setup.graid_path }}"
     state: directory
     mode: "0755"
 
 - name: Ensure download directory exists
   become: true
   ansible.builtin.file:
-    path: "{{ graid_path }}"
+    path: "{{ setup.graid_path }}"
     state: directory
     mode: "0755"
 
 - name: Check if the nv_driver file exists
   delegate_to: localhost
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    path: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
   register: nv_driver_stats
 
 - name: Check if installers exist on control node
   delegate_to: localhost
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ item | basename }}"
+    path: "{{ setup.graid_path }}{{ item | basename }}"
   loop: "{{ linux.installer_urls }}"
   register: installer_stats
 
 - name: Check if the pre-installer file exists
   delegate_to: localhost
   ansible.builtin.stat:
-    path: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    path: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
   register: pre_installer_stats
 
 - name: Download nv_driver to control node
@@ -39,7 +39,7 @@
   become: true
   ansible.builtin.get_url:
     url: "{{ linux.nv_url }}"
-    dest: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
@@ -50,7 +50,7 @@
   become: true
   ansible.builtin.get_url:
     url: "{{ linux.pre_installer_url }}"
-    dest: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
@@ -61,7 +61,7 @@
   become: true
   ansible.builtin.get_url:
     url: "{{ item }}"
-    dest: "{{ graid_path }}{{ item | basename }}"
+    dest: "{{ setup.graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ installer_stats.results }}"
   when:
@@ -71,8 +71,8 @@
 - name: Copy nv_driver to remote host
   become: true
   ansible.builtin.copy:
-    src: "{{ graid_path }}{{ linux.nv_url | basename }}"
-    dest: "{{ graid_path }}{{ linux.nv_url | basename }}"
+    src: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
@@ -80,8 +80,8 @@
 - name: Copy pre-installer to remote host
   become: true
   ansible.builtin.copy:
-    src: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
-    dest: "{{ graid_path }}{{ linux.pre_installer_url | basename }}"
+    src: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family != "Windows"
@@ -89,8 +89,8 @@
 - name: Copy installers to remote host
   become: true
   ansible.builtin.copy:
-    src: "{{ graid_path }}{{ item | basename }}"
-    dest: "{{ graid_path }}{{ item | basename }}"
+    src: "{{ setup.graid_path }}{{ item | basename }}"
+    dest: "{{ setup.graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ linux.installer_urls }}"
   when:
@@ -101,7 +101,7 @@
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.nv_url }}"
-    dest: "{{ graid_path }}{{ windows.nv_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ windows.nv_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family == "Windows"
@@ -111,7 +111,7 @@
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.installation_script_url }}"
-    dest: "{{ graid_path }}{{ windows.installation_script_url | basename }}"
+    dest: "{{ setup.graid_path }}{{ windows.installation_script_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family == "Windows"
@@ -121,7 +121,7 @@
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ item }}"
-    dest: "{{ graid_path }}{{ item | basename }}"
+    dest: "{{ setup.graid_path }}{{ item | basename }}"
     mode: "0755"
   loop: "{{ windows.installer_win_urls }}"
   when:
@@ -130,7 +130,7 @@
 - name: Copy nv dirver to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ graid_path }}{{ windows.nv_url | basename }}"
+    src: "{{ setup.graid_path }}{{ windows.nv_url | basename }}"
     dest: "C:\\Temp\\{{ windows.nv_url | basename }}"
   when:
     - ansible_os_family == "Windows"
@@ -138,7 +138,7 @@
 - name: Copy Installation script to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ graid_path }}{{ windows.installation_script_url | basename }}"
+    src: "{{ setup.graid_path }}{{ windows.installation_script_url | basename }}"
     dest: "C:\\Temp\\{{ windows.installation_script_url | basename }}"
   when:
     - ansible_os_family == "Windows"
@@ -146,7 +146,7 @@
 - name: Copy installers to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ graid_path }}{{ item | basename }}"
+    src: "{{ setup.graid_path }}{{ item | basename }}"
     dest: "C:\\Temp\\{{ item | basename }}"
   loop: "{{ windows.installer_win_urls }}"
   when:

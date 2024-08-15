@@ -14,34 +14,34 @@
     dg_available_capacity: "{{ dg_available_capacity | default({}) | combine({item.DgId: item.Free | int}) }}"
   loop: "{{ dg_info }}"
 
-- name: Convert configure_vd_size to bytes
+- name: Convert configure_raid.vd_size to bytes
   ansible.builtin.set_fact:
-    configure_vd_size_bytes: "{{ configure_vd_size | convert_to_bytes }}"
-  when: configure_vd_size | length > 0
+    configure_vd_size_bytes: "{{ configure_raid.vd_size | convert_to_bytes }}"
+  when: configure_raid.vd_size | length > 0
 
 - name: Validate VD size and count for each drive group
   ansible.builtin.assert:
     that:
       - >-
-        (configure_vd_size_bytes | int * configure_vd_counts | int)
+        (configure_vd_size_bytes | int * configure_raid.vd_counts | int)
         <= dg_available_capacity[item] | int
     fail_msg: >-
-      Requested VD size ({{ configure_vd_size_bytes | int * configure_vd_counts | int }} bytes)
+      Requested VD size ({{ configure_vd_size_bytes | int * configure_raid.vd_counts | int }} bytes)
       exceeds available capacity ({{ dg_available_capacity[item] | int }} bytes)
       for drive group {{ item }}
   loop: "{{ newly_added_dg_list }}"
-  when: configure_vd_size | length > 0
+  when: configure_raid.vd_size | length > 0
 
 - name: Create virtual drives for newly created drive groups
   become: true
   ansible.builtin.command: >
     graidctl create vd {{ item.0 }}
-    {% if configure_vd_size | length > 0 %} {{ configure_vd_size }}{% endif %}
-  loop: "{{ newly_added_dg_list | product(range(configure_vd_counts | int)) | list }}"
+    {% if configure_raid.vd_size | length > 0 %} {{ configure_raid.vd_size }}{% endif %}
+  loop: "{{ newly_added_dg_list | product(range( configure_raid.vd_counts | int)) | list }}"
   loop_control:
     label: "DG {{ item.0 }}, VD {{ item.1 + 1 }}"
   register: create_vd_results
-  when: configure_vd_size | length > 0
+  when: configure_raid.vd_size | length > 0
   changed_when: false
 
 - name: Create full-size virtual drives for newly created drive groups
@@ -50,7 +50,7 @@
     graidctl create vd {{ item }}
   loop: "{{ newly_added_dg_list }}"
   register: create_full_vd_results
-  when: configure_vd_size | length == 0
+  when: configure_raid.vd_size | length == 0
   changed_when: false
 
 - name: Query virtual drives
@@ -66,14 +66,14 @@
 - name: Debug values
   ansible.builtin.debug:
     msg:
-      - "configure_vd_size length: {{ configure_vd_size | length }}"
+      - "configure_raid.vd_size length: {{ configure_raid.vd_size | length }}"
       - "create_vd_results: {{ create_vd_results.results}}"
       - "create_vd_results changed count: {{ create_vd_results.results | selectattr('changed', 'equalto', true) | list | length }}"
       - "create_full_vd_results changed count: {{ create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length }}"
-      - "Condition 1: {{ configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
-      - "Condition 2: {{ configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
-      - "Final result: {{ (configure_vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) or
-        (configure_vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) }}"
+      - "Condition 1: {{ configure_raid.vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
+      - "Condition 2: {{ configure_raid.vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0 }}"
+      - "Final result: {{ (configure_raid.vd_size | length > 0 and create_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) or
+        (configure_raid.vd_size | length == 0 and create_full_vd_results.results | selectattr('changed', 'equalto', true) | list | length == 0) }}"
 
 - name: Debug detailed results
   ansible.builtin.debug:
@@ -85,8 +85,8 @@
   ansible.builtin.fail:
     msg: "Failed to create any virtual drives."
   when:
-    - (configure_vd_size | length > 0 and create_vd_results.results | map(attribute='rc') | list | max != 0) or
-      (configure_vd_size | length == 0 and create_full_vd_results.results | map(attribute='rc') | list | max != 0)
+    - (configure_raid.vd_size | length > 0 and create_vd_results.results | map(attribute='rc') | list | max != 0) or
+      (configure_raid.vd_size | length == 0 and create_full_vd_results.results | map(attribute='rc') | list | max != 0)
 
 - name: Debug output of created virtual drives
   ansible.builtin.debug:
@@ -95,7 +95,7 @@
       - "All virtual drives: {{ vd_list }}"
       - >-
         Creation results:
-        {% if configure_vd_size | length > 0 %}
+        {% if configure_raid.vd_size | length > 0 %}
         {{ create_vd_results.results | map(attribute='stdout') | list }}
         {% else %}
         {{ create_full_vd_results.results | map(attribute='stdout') | list }}

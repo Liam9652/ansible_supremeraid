@@ -13,36 +13,36 @@
   ansible.builtin.fail:
     msg: "No new physical drives found for creating drive groups."
   when: >
-    (configure_create_by_numa and not pd_list_by_numa) or
-    (configure_create_by_socket | int > 0 and not pd_list_by_socket) or
-    (not configure_create_by_numa and configure_create_by_socket | int == 0 and not pd_list_all)
+    (configure_pd.create_by_numa and not pd_list_by_numa) or
+    (configure_pd.create_by_socket | int > 0 and not pd_list_by_socket) or
+    (not configure_pd.create_by_numa and configure_pd.create_by_socket | int == 0 and not pd_list_all)
 
 # - name: Debug - Show detailed condition evaluation
 #   ansible.builtin.debug:
 #     msg:
-#       - "configure_create_by_numa: {{ configure_create_by_numa }}"
-#       - "configure_create_by_numa (as bool): {{ configure_create_by_numa | bool }}"
-#       - "configure_create_by_socket: {{ configure_create_by_socket }}"
-#       - "configure_create_by_socket (as int): {{ configure_create_by_socket | default('-1') | int }}"
-#       - "Condition 1 result: {{ configure_create_by_numa | bool }}"
-#       - "Condition 2 result: {{ configure_create_by_socket | default('-1') | int < 0 }}"
-#       - "Overall condition result: {{ (configure_create_by_numa | bool) and (configure_create_by_socket | default('-1') | int < 0) }}"
+#       - "configure_pd.create_by_numa: {{ configure_pd.create_by_numa }}"
+#       - "configure_pd.create_by_numa (as bool): {{ configure_pd.create_by_numa | bool }}"
+#       - "configure_pd.create_by_socket: {{ configure_pd.create_by_socket }}"
+#       - "configure_pd.create_by_socket (as int): {{ configure_pd.create_by_socket | default('-1') | int }}"
+#       - "Condition 1 result: {{ configure_pd.create_by_numa | bool }}"
+#       - "Condition 2 result: {{ configure_pd.create_by_socket | default('-1') | int < 0 }}"
+#       - "Overall condition result: {{ (configure_pd.create_by_numa | bool) and (configure_pd.create_by_socket | default('-1') | int < 0) }}"
 
 # - name: Debug - Check condition
 #   ansible.builtin.debug:
 #     msg: "Condition met for creating drive groups by NUMA"
 #   when:
-#     - configure_create_by_numa | bool
-#     - configure_create_by_socket | default('-1') | int < 0
+#     - configure_pd.create_by_numa | bool
+#     - configure_pd.create_by_socket | default('-1') | int < 0
 
 # - name: Debug pd_list_by_numa
 #   debug:
 #     msg:
 #       - "{{ pd_list_by_numa }}"
-#       - "configure_raid_type: {{ configure_raid_type }}"
-#       - "configure_dg_foreground_init: {{ configure_dg_foreground_init }}"
-#       - "configure_create_by_numa: {{ configure_create_by_numa }}"
-#       - "configure_create_by_socket: {{ configure_create_by_socket }}"
+#       - "configure_raid.type: {{ configure_raid.type }}"
+#       - "configure_disk_group.dg_foreground_init: {{ configure_disk_group.dg_foreground_init }}"
+#       - "configure_pd.create_by_numa: {{ configure_pd.create_by_numa }}"
+#       - "configure_pd.create_by_socket: {{ configure_pd.create_by_socket }}"
 #       - "pd_list_by_numa: {{ pd_list_by_numa }}"
 #       - "pd_list_by_numa length: {{ pd_list_by_numa | length }}"
 #       # - "Last element: {{ pd_list_by_numa | last }}"
@@ -50,16 +50,16 @@
 
 - name: Setup drive groups(NUMA)
   when:
-    - configure_create_by_numa | bool
-    - configure_create_by_socket == '' or
-      configure_create_by_socket | int < 0
+    - configure_pd.create_by_numa | bool
+    - configure_pd.create_by_socket == '' or
+      configure_pd.create_by_socket | int < 0
   block:
     - name: Prepare drive groups list(NUMA)
       ansible.builtin.set_fact:
         drive_groups_numa: >
           {% set groups = [] %}
           {% for numa, drives in pd_list_by_numa.items() %}
-            {% if configure_pd_hotspare and drives | length > 1 %}
+            {% if configure_disk_group.pd_hotspare and drives | length > 1 %}
               {% set _ = groups.append(drives[:-1] | join(',')) %}
             {% else %}
               {% set _ = groups.append(drives | join(',')) %}
@@ -81,8 +81,8 @@
     - name: Create drive groups by NUMA
       become: true
       ansible.builtin.command: >
-        graidctl create dg {{ configure_raid_type }} {{ item }}
-        {% if configure_dg_foreground_init %} -z{% endif %}
+        graidctl create dg {{ configure_raid.type }} {{ item }}
+        {% if configure_disk_group.dg_foreground_init %} -z{% endif %}
       loop: "{{ drive_groups_numa }}"
       register: create_dg_numa_results
       changed_when: false
@@ -90,36 +90,36 @@
 - name: Create drive groups by Socket
   become: true
   ansible.builtin.command: >
-    graidctl create dg {{ configure_raid_type }} {{ item.value | join(',') }}
-    {% if configure_dg_foreground_init %} -z{% endif %}
+    graidctl create dg {{ configure_raid.type }} {{ item.value | join(',') }}
+    {% if configure_disk_group.dg_foreground_init %} -z{% endif %}
   loop: >
-    {% if configure_pd_hotspare %}
+    {% if configure_disk_group.pd_hotspare %}
       {{ pd_list_by_socket | dict2items | map(attribute='value') | map('slice', 0, pd_list_by_socket | dict2items | length - 1) | list }}
     {% else %}
       {{ pd_list_by_socket | dict2items }}
     {% endif %}
   when:
-    - configure_create_by_socket | int > 0
-    - not configure_create_by_numa | bool
+    - configure_pd.create_by_socket | int > 0
+    - not configure_pd.create_by_numa | bool
   register: create_dg_socket_results
   changed_when: false
 
 - name: Create single drive group
   become: true
   ansible.builtin.command: >
-    {% if configure_pd_hotspare %}
-      graidctl create dg {{ configure_raid_type }} {{ pd_list_all[:-1] | join(',') }}
-      {% if configure_dg_foreground_init %} -z{% endif %}
+    {% if configure_disk_group.pd_hotspare %}
+      graidctl create dg {{ configure_raid.type }} {{ pd_list_all[:-1] | join(',') }}
+      {% if configure_raid.dg_foreground_init %} -z{% endif %}
     {% else %}
-      graidctl create dg {{ configure_raid_type }} {{ pd_list_all | join(',') }}
-      {% if configure_dg_foreground_init %} -z{% endif %}
+      graidctl create dg {{ configure_raid.type }} {{ pd_list_all | join(',') }}
+      {% if configure_raid.dg_foreground_init %} -z{% endif %}
     {% endif %}
-  when: not configure_create_by_numa and configure_create_by_socket | int == 0
+  when: not configure_pd.create_by_numa and configure_pd.create_by_socket | int == 0
   register: create_dg_single_result
   changed_when: false
 
 - name: Setup hotspare
-  when: configure_pd_hotspare
+  when: configure_disk_group.pd_hotspare
   block:
     - name: Setup hot spare for each NUMA node if configured
       become: true
@@ -127,9 +127,9 @@
         graidctl e pd {{ item.value | last }} hotspare global
       loop: "{{ pd_list_by_numa | dict2items }}"
       when:
-        - configure_create_by_numa | bool
-        - configure_create_by_socket == '' or configure_create_by_socket | int < 0
-        - configure_pd_hotspare | bool
+        - configure_pd.create_by_numa | bool
+        - configure_pd.create_by_socket == '' or configure_pd.create_by_socket | int < 0
+        - configure_disk_group.pd_hotspare | bool
         - item.value | length > 1
       register: setup_hotspare_result
       changed_when: false
@@ -139,8 +139,8 @@
       ansible.builtin.command: >
         graidctl e pd {{ pd_list_by_socket | dict2items | last | first }} hotspare global
       when:
-        - configure_create_by_socket | int > 0
-        - not configure_create_by_numa | bool
+        - configure_pd.create_by_socket | int > 0
+        - not configure_pd.create_by_numa | bool
       register: setup_hotspare_socket_result
       changed_when: false
 
@@ -149,7 +149,7 @@
       ansible.builtin.command: >
         graidctl e pd {{ pd_list_all | last }} hotspare global
       when:
-        - not configure_create_by_numa and configure_create_by_socket | int == 0
+        - not configure_pd.create_by_numa and configure_pd.create_by_socket | int == 0
       register: setup_hotspare_single_result
       changed_when: false
 
@@ -183,7 +183,7 @@
   until: (dg_status_output.stdout | from_json).Result | selectattr('DgId', 'in', newly_added_dg_list) | map(attribute='State') | list | unique == ['OPTIMAL']
   retries: 1000000
   delay: 60
-  when: configure_dg_foreground_init | bool
+  when: configure_raid.dg_foreground_init | bool
   changed_when: false
 
 - name: Debug output of newly created drive groups

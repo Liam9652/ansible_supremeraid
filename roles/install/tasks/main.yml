@@ -8,7 +8,7 @@
         - downloads
   tags:
     - downloads
-  when: not configure_copy_from_local
+  when: not general.copy_from_local
 
 - name: Copy files
   ansible.builtin.include_tasks: copy_files.yml
@@ -19,7 +19,7 @@
   tags:
     - copy
   # when: install_mode == 'offline'
-  when: configure_copy_from_local
+  when: general.copy_from_local
 
 - name: Setup environment (Online)
   ansible.builtin.include_tasks: online_setup.yml

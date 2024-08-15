@@ -78,14 +78,14 @@
           ansible.builtin.fail:
             msg: >-
               Insufficient space on / partition. Current free space: {{ free_space_gb }}GB.
-              Required: greater than {{ min_disk_space_gb }}GB
-          when: free_space_gb | float < min_disk_space_gb | float
+              Required: greater than {{ general.min_disk_space_gb }}GB
+          when: free_space_gb | float < general.min_disk_space_gb | float
 
         - name: Display success message if space is sufficient
           ansible.builtin.debug:
             msg: >-
               Sufficient space on / partition. Current free space: {{ free_space_gb }}GB.
-              Meets requirement (greater than {{ min_disk_space_gb }}GB)
+              Meets requirement (greater than {{ general.min_disk_space_gb }}GB)
       rescue:
         - name: Fail the play if disk space check failed
           ansible.builtin.fail:

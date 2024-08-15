@@ -16,11 +16,11 @@
 
 - name: Set the VMC
   become: true
-  when: configure_dg_pd_vwc == "on"
+  when: configure_disk_group.pd_vwc == "on"
   block:
     - name: Edit VMC value
       ansible.builtin.command: >
-        graidctl edit dg {{ item }} pd_vwc {{ configure_dg_pd_vwc }}
+        graidctl edit dg {{ item }} pd_vwc {{ configure_disk_group.pd_vwc  }}
       loop: "{{ dg_info }}"
       register: vmc_result
       notify: Restart graid server
@@ -32,9 +32,9 @@
 
 - name: Set the journal
   become: true
-  when: configure_dg_journal != "degrade_only"
+  when: configure_disk_group.journal != "degrade_only"
   ansible.builtin.command: >
-    graidctl edit dg {{ item }} journal {{ configure_dg_journal }}
+    graidctl edit dg {{ item }} journal {{ configure_disk_group.journal }}
   loop: "{{ dg_info }}"
   register: journal_result
   changed_when: "'successfully' in journal_result.stdout"
@@ -42,59 +42,79 @@
 - name: Set DG spped
   become: true
   when: >
-    configure_dg_rebuild_speed != "high" or
-    configure_dg_init_speed != "high" or
-    configure_dg_cc_speed != "high" or
-    configure_dg_resync_speed != "high"
+    configure_disk_group.rebuild_speed != "high" or
+    configure_disk_group.init_speed != "high" or
+    configure_disk_group.cc_speed != "high" or
+    configure_disk_group.resync_speed != "high"
   block:
     - name: Edit rebuild speed
       ansible.builtin.command: >
-        graidctl edit dg {{ item }} rebuild_speed {{ configure_dg_rebuild_speed }}
+        graidctl edit dg {{ item }} rebuild_speed {{ configure_disk_group.rebuild_speed }}
       loop: "{{ dg_info }}"
       register: rebuild_result
-      when: configure_dg_rebuild_speed != "high"
+      when: configure_disk_group.rebuild_speed != "high"
       changed_when: "'successfully' in rebuild_result.stdout"
 
     - name: Edit dg init speed
       ansible.builtin.command: >
-        graidctl edit dg {{ item }} init_speed {{ configure_dg_init_speed }}
+        graidctl edit dg {{ item }} init_speed {{ configure_disk_group.init_speed  }}
       loop: "{{ dg_info }}"
       register: init_result
-      when: configure_dg_init_speed != "high"
+      when: configure_disk_group.init_speed  != "high"
       changed_when: "'successfully' in init_result.stdout"
 
     - name: Edit cc speed
       ansible.builtin.command: >
-        graidctl edit dg {{ item }} cc_speed {{ configure_dg_cc_speed }}
+        graidctl edit dg {{ item }} cc_speed {{ configure_disk_group.cc_speed }}
       loop: "{{ dg_info }}"
       register: cc_result
-      when: configure_dg_cc_speed != "high"
+      when: configure_disk_group.cc_speed != "high"
       changed_when: "'successfully' in cc_result.stdout"
 
     - name: Edit resync speed
       ansible.builtin.command: >
-        graidctl edit dg {{ item }} resync_speed {{ configure_dg_resync_speed }}
+        graidctl edit dg {{ item }} resync_speed {{ configure_disk_group.resync_speed }}
       loop: "{{ dg_info }}"
       register: resync_result
-      when: configure_dg_resync_speed != "high"
+      when: configure_disk_group.resync_speed != "high"
       changed_when: "'successfully' in resync_result.stdout"
 
 - name: Set consistency check
   become: true
-  when: configure_cc_mode
+  when: configure_consistency_check.mode
   block:
     - name: Set the consistency check policy
       ansible.builtin.command: >
-        graidctl set consistency_check policy {{ configure_cc_policy }}
+        graidctl set consistency_check policy {{ configure_consistency_check.policy }}
       register: set_cc_result
       changed_when: "'successfully' in set_cc_result.stdout"
 
     - name: Set the consistency check schedule
       ansible.builtin.command: >
-        {% if configure_cc_schedule == "off" %}
-           graidctl set consistency_check schedule_mode {{ configure_cc_schedule }}
+        {% if configure_consistency_check.schedule == "off" %}
+           graidctl set consistency_check schedule_mode {{ configure_consistency_check.schedule }}
          {% else %}
-           graidctl set consistency_check schedule_mode {{ configure_cc_schedule }} {{ '%Y/%m/%d' | strftime }} 00
+           graidctl set consistency_check schedule_mode {{ configure_consistency_check.schedule }} {{ '%Y/%m/%d' | strftime }} 00
          {% endif %}
       register: set_cc_result
       changed_when: "'successfully' in set_cc_result.stdout"
+
+- name: MD setup
+  become: true
+  block:
+    - name: Import_md
+      when: configure_import_md.enabled | bool
+      ansible.builtin.expect:
+        command: "graidctl import md_drive {{ configure_import_md.devices | join(' ') }}"
+        responses:
+          "Data will sync from": "y"
+      register: import_md_result
+      changed_when: "'successfully' in import_md_result.stdout"
+
+    - name: Delete md_drive
+      when:
+        - not configure_import_md.enabled | bool
+        - 8 in dg_info
+      ansible.builtin.command: "graidctl delete dg 8 --confirm-to-delete"
+      register: del_md_result
+      changed_when: "'successfully' in del_md_result.stdout"

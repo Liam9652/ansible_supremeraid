@@ -34,7 +34,7 @@
 
 - name: Find the correct installer file in /graid_package
   ansible.builtin.find:
-    paths: "{{ graid_path }}"
+    paths: "{{ setup.graid_path }}"
     patterns: "{{ installer_filename }}"
   register: found_files
   become: true
@@ -72,7 +72,7 @@
 
     - name: Run the installer
       ansible.builtin.command: "bash {{ installer_path }} --accept-license"
-      async: "{{ configure_timeout | int * 5 }}"
+      async: "{{ general.timeout | int * 5 }}"
       poll: 0
       register: install_result
       changed_when: false
@@ -81,13 +81,13 @@
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
         state: present
-        timeout: "{{ configure_timeout  }}"
+        timeout: "{{ general.timeout  }}"
 
     - name: Monitor installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
         search_regex: "\\[INFO\\] Asking reboot\\?"
-        timeout: "{{ configure_timeout | int / 10 }}" # 180 * 10 seconds = 1800 seconds = 30 minutes
+        timeout: "{{ general.timeout | int / 10 }}" # 180 * 10 seconds = 1800 seconds = 30 minutes
       register: log_content
       become: true
       retries: 180
@@ -101,7 +101,7 @@
     - name: Wait for the server to finish rebooting
       ansible.builtin.wait_for_connection:
         delay: 30
-        timeout: "{{ configure_timeout  }}"
+        timeout: "{{ general.timeout  }}"
 
     - name: Check network connectivity after installer
       ansible.builtin.ping:
@@ -113,7 +113,7 @@
         host: "{{ inventory_hostname }}"
         port: 22
         delay: 30
-        timeout: "{{ configure_timeout | int * 5  }}"
+        timeout: "{{ general.timeout | int * 5  }}"
         state: started
       when: ping_result_after_installer is failed
       ignore_unreachable: true

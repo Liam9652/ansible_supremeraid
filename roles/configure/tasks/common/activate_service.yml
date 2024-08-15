@@ -41,7 +41,7 @@
   ansible.builtin.set_fact:
     license_key: >-
       {{ serial_output.stdout_lines[0].split(', ')[2] |
-         get_license_key(configure_license_mapping_csv) }}
+         get_license_key(general.license_table_path) }}
   changed_when: not all_controllers_applied
 
 - name: Display license key
@@ -87,14 +87,14 @@
 - name: Open firewall port for graid-mgr (Ubuntu)
   community.general.ufw:
     rule: allow
-    port: "{{ configure_graid_mgr_port }}"
+    port: "{{ general.graid_mgr_ports }}"
     proto: tcp
   become: true
   when: ansible_facts['os_family'] == "Debian"
 
 - name: Open firewall port for graid-mgr (RHEL/CentOS)
   ansible.posix.firewalld:
-    port: "{{ configure_graid_mgr_port }}/tcp"
+    port: "{{ general.graid_mgr_ports }}/tcp"
     permanent: true
     state: enabled
   notify: Reload firewall
