@@ -2,7 +2,7 @@
 # tasks file for copy_files
 - name: Ensure local download directory exists
   delegate_to: localhost
-  become: true
+  become: false
   ansible.builtin.file:
     path: "{{ setup.graid_path }}"
     state: directory
@@ -36,7 +36,7 @@
 
 - name: Download nv_driver to control node
   delegate_to: localhost
-  become: true
+  become: false
   ansible.builtin.get_url:
     url: "{{ linux.nv_url }}"
     dest: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
@@ -47,7 +47,7 @@
 
 - name: Download pre-installer to control node
   delegate_to: localhost
-  become: true
+  become: false
   ansible.builtin.get_url:
     url: "{{ linux.pre_installer_url }}"
     dest: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
@@ -58,10 +58,10 @@
 
 - name: Download installers to control node
   delegate_to: localhost
-  become: true
+  become: false
   ansible.builtin.get_url:
-    url: "{{ item }}"
-    dest: "{{ setup.graid_path }}{{ item | basename }}"
+    url: "{{ item.item }}"
+    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
   loop: "{{ installer_stats.results }}"
   when:
@@ -89,15 +89,15 @@
 - name: Copy installers to remote host
   become: true
   ansible.builtin.copy:
-    src: "{{ setup.graid_path }}{{ item | basename }}"
-    dest: "{{ setup.graid_path }}{{ item | basename }}"
+    src: "{{ setup.graid_path }}{{ item.item | basename }}"
+    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
-  loop: "{{ linux.installer_urls }}"
+  loop: "{{ installer_stats.results }}"
   when:
     - ansible_os_family != "Windows"
 
 - name: Download nv dirver to control node
-  become: true
+  become: false
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.nv_url }}"
@@ -107,7 +107,7 @@
     - ansible_os_family == "Windows"
 
 - name: Download Installation script to control node
-  become: true
+  become: false
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.installation_script_url }}"
@@ -117,11 +117,11 @@
     - ansible_os_family == "Windows"
 
 - name: Download installers to control node
-  become: true
+  become: false
   delegate_to: localhost
   ansible.builtin.get_url:
-    url: "{{ item }}"
-    dest: "{{ setup.graid_path }}{{ item | basename }}"
+    url: "{{ item.item }}"
+    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
   loop: "{{ windows.installer_win_urls }}"
   when:
