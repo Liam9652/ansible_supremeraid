@@ -413,4 +413,11 @@ async def main():
     logger.info("All tasks completed.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if sys.version_info >= (3, 7):
+        # Python 3.7 and above
+        asyncio.run(main())
+    else:
+        # Python 3.6
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+        loop.close()
