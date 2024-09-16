@@ -20,6 +20,8 @@ import shutil
 import argparse
 import configparser
 from tqdm import tqdm
+import aiohttp
+import tempfile
 
 # Constants
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -35,6 +37,19 @@ async def load_config():
     async with aiofiles.open(CONFIG_PATH, 'r') as file:
         config = yaml.safe_load(await file.read())
     return config['setup']
+
+
+async def download_metadata(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                content = await response.text()
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                    temp_file.write(content)
+                    return temp_file.name
+            else:
+                raise Exception(
+                    f"Failed to download metadata. Status code: {response.status}")
 
 
 async def setup_logging(config):
@@ -335,7 +350,7 @@ async def update_ansible_inventory(host, remote_python_path, inventory_path):
                 await f.write(line)
 
 
-async def run_update_link_script():
+async def run_update_link_script(config):
     update_script_path = SCRIPT_DIR / 'update_download_link.py'
     if not update_script_path.exists():
         logger.error(
@@ -344,11 +359,44 @@ async def run_update_link_script():
 
     logger.info("Running update driver links script...")
     try:
-        stdout, stderr, returncode = await run_command([sys.executable, str(update_script_path)])
+        metadata_path = config.get('metadata_file', 'metadata.json')
+        yaml_path = Path(config.get('download_urls_yaml',
+                         'group_vars/all/download_urls.yml'))
+
+        # Check if metadata_path is a URL
+        if metadata_path.startswith('http://') or metadata_path.startswith('https://'):
+            logger.info(f"Downloading metadata from URL: {metadata_path}")
+            metadata_path = await download_metadata(metadata_path)
+            logger.info(
+                f"Metadata downloaded to temporary file: {metadata_path}")
+        else:
+            metadata_path = Path(metadata_path)
+
+        command = [
+            sys.executable,
+            str(update_script_path),
+            '--metadata', str(metadata_path),
+            '--yaml', str(yaml_path)
+        ]
+
+        stdout, stderr, returncode = await run_command(command)
         logger.info(f"Update driver links script output:\n{stdout}")
+        if returncode != 0:
+            logger.error(
+                f"Update driver links script failed with return code {returncode}")
+            logger.error(f"Error output: {stderr}")
     except Exception as e:
         logger.error(f"Update driver links script failed: {e}")
-        logger.error(f"Error output: {stderr}")
+    finally:
+        # Clean up the temporary file if it was created
+        if isinstance(metadata_path, str) and (metadata_path.startswith('http://') or metadata_path.startswith('https://')):
+            try:
+                os.unlink(metadata_path)
+                logger.info(
+                    f"Temporary metadata file removed: {metadata_path}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to remove temporary metadata file: {e}")
 
 
 async def read_inventory(config):
@@ -475,7 +523,7 @@ async def main():
 
     logger.info("Setup complete for all hosts.")
     logger.info("Updating driver link...")
-    await run_update_link_script()
+    await run_update_link_script(config)
 
     logger.info("All tasks completed.")
 

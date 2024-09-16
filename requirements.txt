@@ -22,3 +22,4 @@ ruamel.yaml.clib
 soupsieve
 tqdm
 urllib3
+aiohttp

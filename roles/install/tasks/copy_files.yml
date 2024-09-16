@@ -1,5 +1,12 @@
 ---
 # tasks file for copy_files
+- name: Debug linux installer URLs
+  debug:
+    msg:
+      - "NV URL: {{ linux.nv_url }}"
+      - "Pre-installer URL: {{ linux.pre_installer_url }}"
+      - "Installer URLs: {{ linux.installer_urls }}"
+
 - name: Ensure local download directory exists
   delegate_to: localhost
   become: false
@@ -8,83 +15,49 @@
     state: directory
     mode: "0755"
 
-- name: Ensure download directory exists
-  become: true
-  ansible.builtin.file:
-    path: "{{ setup.graid_path }}"
-    state: directory
-    mode: "0755"
-
-- name: Check if the nv_driver file exists
-  delegate_to: localhost
-  ansible.builtin.stat:
-    path: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
-  register: nv_driver_stats
-
 - name: Check if installers exist on control node
   delegate_to: localhost
   ansible.builtin.stat:
     path: "{{ setup.graid_path }}{{ item | basename }}"
-  loop: "{{ linux.installer_urls }}"
-  register: installer_stats
+  with_flattened:
+    - "{{ linux.nv_url }}"
+    - "{{ linux.pre_installer_url }}"
+    - "{{ linux.installer_urls }}"
+  register: install_package_stats
 
-- name: Check if the pre-installer file exists
-  delegate_to: localhost
-  ansible.builtin.stat:
-    path: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
-  register: pre_installer_stats
+- name: Debug installer stats
+  debug:
+    var: install_package_stats
 
-- name: Download nv_driver to control node
-  delegate_to: localhost
-  become: false
-  ansible.builtin.get_url:
-    url: "{{ linux.nv_url }}"
-    dest: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
-    mode: "0755"
-  when:
-    - ansible_os_family != "Windows"
-    - not nv_driver_stats.stat.exists
-
-- name: Download pre-installer to control node
-  delegate_to: localhost
-  become: false
-  ansible.builtin.get_url:
-    url: "{{ linux.pre_installer_url }}"
-    dest: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
-    mode: "0755"
-  when:
-    - ansible_os_family != "Windows"
-    - not pre_installer_stats.stat.exists
-
-- name: Download installers to control node
+- name: Start download packages
   delegate_to: localhost
   become: false
   ansible.builtin.get_url:
     url: "{{ item.item }}"
     dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
-  loop: "{{ installer_stats.results }}"
+  async: 3600
+  poll: 0
+  loop: "{{ install_package_stats.results }}"
   when:
     - ansible_os_family != "Windows"
     - not item.stat.exists
+  register: download_jobs
 
-- name: Copy nv_driver to remote host
-  become: true
-  ansible.builtin.copy:
-    src: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
-    dest: "{{ setup.graid_path }}{{ linux.nv_url | basename }}"
-    mode: "0755"
-  when:
-    - ansible_os_family != "Windows"
+- name: Wait for downloads to complete
+  delegate_to: localhost
+  async_status:
+    jid: "{{ item.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 360
+  delay: 10
+  loop: "{{ download_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
+  when: download_jobs.changed
 
-- name: Copy pre-installer to remote host
-  become: true
-  ansible.builtin.copy:
-    src: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
-    dest: "{{ setup.graid_path }}{{ linux.pre_installer_url | basename }}"
-    mode: "0755"
-  when:
-    - ansible_os_family != "Windows"
+- name: Show download completion message
+  debug:
+    msg: "All downloads have completed."
 
 - name: Copy installers to remote host
   become: true
@@ -92,9 +65,10 @@
     src: "{{ setup.graid_path }}{{ item.item | basename }}"
     dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
-  loop: "{{ installer_stats.results }}"
+  loop: "{{ install_package_stats.results }}"
   when:
     - ansible_os_family != "Windows"
+    - item.stat.exists or (item.item in download_results.results | map(attribute='dest') | list)
 
 - name: Download nv dirver to control node
   become: false

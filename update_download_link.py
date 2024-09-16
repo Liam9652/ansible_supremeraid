@@ -1,184 +1,73 @@
-import requests
-from bs4 import BeautifulSoup
-from ruamel.yaml import YAML
-import os
+import json
+import argparse
 import logging
+import yaml
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s',)
+
+logging.basicConfig(level=logging.INFO,
+                    format='[%(asctime)s] [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 
-def get_latest_driver_links():
-    url = "https://docs.graidtech.com/#supremeraidtm-driver-release-notes"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    }
-    try: 
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, "html.parser")
+def generate_urls_from_pattern(url_pattern, variants):
+    """Generate full URLs from a pattern and a list of variants."""
+    return [url_pattern.replace('*', variant) for variant in variants]
 
-        def find_latest_driver_link(section_id, latest_stable_text="Latest Stable"):
-            section = soup.find("h3", {"id": section_id})
-            if section:
-                for ul in section.find_all_next("ul"):
-                    for li in ul.find_all("li", recursive=True):
-                        if latest_stable_text in li.text:
-                            link = li.find("a")
-                            if link:
-                                return "https://docs.graidtech.com" + link["href"]
-            return None
 
-        latest_linux_driver = find_latest_driver_link("linux-driver")
-        latest_windows_driver = find_latest_driver_link("windows-driver")
-        return latest_linux_driver, latest_windows_driver
-    except requests.RequestException as e:
-        logger.error(f"Error fetching driver links: {e}")
-        return None, None
-
-def extract_detailed_info(url, is_windows=False):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    }
+def update_yaml(metadata_path, yaml_path):
     try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, "html.parser")
+        # Read metadata file
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
 
-        def extract_links_from_table(table):
-            links = {}
-            for row in table.find_all('tr'):
-                cols = row.find_all('td')
-                if len(cols) == 2:
-                    name = cols[0].text.strip()
-                    link = cols[1].find('a')
-                    if link:
-                        links[name] = link['href']
-            return links
+        # Read YAML file
+        with open(yaml_path, 'r') as f:
+            yaml_data = yaml.safe_load(f)
 
-        if is_windows:
-            dependencies_section = soup.find('h3', {'id': 'dependencies-and-utilities'})
-        else:
-            dependencies_section = soup.find('h2', {'id': 'dependencies-and-utilities'})
-        
-        if dependencies_section:
-            dependencies_table = dependencies_section.find_next('table')
-            dependencies_links = extract_links_from_table(dependencies_table)
-        else:
-            dependencies_links = {}
+        # Update Linux URLs
+        if 'linux' in metadata and 'linux' in yaml_data:
+            if 'nvidia_driver' in metadata['linux']:
+                yaml_data['linux']['nv_url'] = metadata['linux']['nvidia_driver'].get(
+                    'url', '')
+            if 'pre_installer' in metadata['linux']:
+                yaml_data['linux']['pre_installer_url'] = metadata['linux']['pre_installer'].get(
+                    'url', '')
+            if 'installer' in metadata['linux']:
+                yaml_data['linux']['installer_urls'] = generate_urls_from_pattern(
+                    metadata['linux']['installer'].get('url_pattern', ''),
+                    metadata['linux']['installer'].get('variants', [])
+                )
 
-        if is_windows:
-            driver_package_section = soup.find('h3', {'id': 'driver-packages'})
-        else:
-            driver_package_section = soup.find('h2', {'id': 'driver-package'})
-        
-        if driver_package_section:
-            driver_package_table = driver_package_section.find_next('table')
-            driver_package_links = {}
-            for row in driver_package_table.find_all('tr')[1:]:  # Skip header row
-                cols = row.find_all('td')
-                if len(cols) >= 3:
-                    product_model = cols[0].text.strip()
-                    gpu = cols[1].text.strip()
-                    link = cols[-1].find('a')
-                    if link:
-                        driver_package_links[f"{product_model} ({gpu})"] = link['href']
-        else:
-            driver_package_links = {}
+        # Update Windows URLs
+        if 'windows' in metadata and 'windows' in yaml_data:
+            if 'nvidia_driver' in metadata['windows']:
+                yaml_data['windows']['nv_url'] = metadata['windows']['nvidia_driver'].get(
+                    'url', '')
+            if 'installer' in metadata['windows']:
+                yaml_data['windows']['installer_win_urls'] = generate_urls_from_pattern(
+                    metadata['windows']['installer'].get('url_pattern', ''),
+                    metadata['windows']['installer'].get('variants', [])
+                )
 
-        return {
-            'dependencies': dependencies_links,
-            'driver_package': driver_package_links
-        }
-    except requests.RequestException as e:
-        logger.error(f"Error extracting detailed info from {url}: {e}")
-        return None
-    
-def update_yaml_file(linux_info, windows_info):
-    yaml_file_path = 'group_vars/all/download_urls.yml'
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096  # Avoid automatic line breaks
-    
-    # Check if the file exists
-    if not os.path.exists(yaml_file_path):
-        print(f"Warning: YAML file '{yaml_file_path}' does not exist. Creating a new file.")
-        data = {'linux': {}, 'windows': {}}
-    else:
-        try:
-            with open(yaml_file_path, 'r') as file:
-                data = yaml.load(file)
-        except Exception as e:
-            logger.error(f"Error: Failed to read the file: {e}")
-            return
+        # Write back to YAML file
+        with open(yaml_path, 'w') as f:
+            yaml.dump(yaml_data, f, default_flow_style=False)
 
-    # Ensure data is a dictionary and contains 'linux' and 'windows' keys
-    if not isinstance(data, dict):
-        data = {}
-    if 'linux' not in data:
-        data['linux'] = {}
-    if 'windows' not in data:
-        data['windows'] = {}
+        logger.info(f"Successfully updated all URLs in {yaml_path}")
 
-    # Update Linux section
-    if linux_info:
-        # Correctly update pre_installer_url
-        for name, link in linux_info['dependencies'].items():
-            if "Pre-installer" in name:
-                data['linux']['pre_installer_url'] = link
-                
-            if "NVIDIA Driver" in name:
-                data['linux']['nv_url'] = link
-                # print('update',link)
-            
-        
-        data['linux']['installer_urls'] = list(linux_info['driver_package'].values())
-
-    # Update Windows section
-    if windows_info:
-        data['windows']['nv_url'] = windows_info['dependencies'].get('NVIDIA Driver', '')
-        data['windows']['installer_win_urls'] = list(windows_info['driver_package'].values())
-
-    # Write back to YAML file
-    try:
-        with open(yaml_file_path, 'w') as file:
-            logger.debug(data)
-            yaml.dump(data, file)
-        logger.info(f"YAML file successfully updated: {yaml_file_path}")
     except Exception as e:
-        logger.error(f"Error: Unable to write to YAML file: {e}")
+        logger.error(f"Error updating links: {str(e)}")
+
 
 if __name__ == "__main__":
-    latest_linux_driver_link, latest_windows_driver_link = get_latest_driver_links()
-    
-    linux_info = None
-    windows_info = None
-
-    if latest_linux_driver_link:
-        logger.info(f"Latest Linux Driver Link: {latest_linux_driver_link}")
-        linux_info = extract_detailed_info(latest_linux_driver_link)
-        
-        logger.info("Linux Dependencies and Utilities:")
-        for name, link in linux_info['dependencies'].items():
-            logger.info(f"{name}: {link}")
-        
-        logger.info("Linux Driver Package:")
-        for name, link in linux_info['driver_package'].items():
-            logger.info(f"{name}: {link}")
-    else:
-        logger.warning("Unable to find the latest Linux driver download link.")
-    
-    if latest_windows_driver_link:
-        logger.info(f"\nLatest Windows Driver Link: {latest_windows_driver_link}")
-        windows_info = extract_detailed_info(latest_windows_driver_link, is_windows=True)
-        
-        logger.info("Windows Dependencies and Utilities:")
-        for name, link in windows_info['dependencies'].items():
-            logger.info(f"{name}: {link}")
-        
-        logger.info("Windows Driver Package:")
-        for name, link in windows_info['driver_package'].items():
-            logger.info(f"{name}: {link}")
-    else:
-        logger.warning("Unable to find the latest Windows driver download link.")
+    parser = argparse.ArgumentParser(
+        description="Update driver download links from metadata file")
+    parser.add_argument("--metadata", required=True,
+                        help="Path to metadata JSON file")
+    parser.add_argument("--yaml", required=True,
+                        help="Path to download_urls.yml file")
+    args = parser.parse_args()
 
     # Update YAML file
-    update_yaml_file(linux_info, windows_info)
+    update_yaml(args.metadata, args.yaml)
