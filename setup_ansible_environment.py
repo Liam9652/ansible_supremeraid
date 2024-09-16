@@ -24,6 +24,8 @@ from tqdm import tqdm
 # Constants
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / 'group_vars/all/main.yml'
+SSH_OPTIONS = ['-o', 'StrictHostKeyChecking=no',
+               '-o', 'UserKnownHostsFile=/dev/null']
 
 
 async def load_config():
@@ -51,11 +53,21 @@ async def setup_logging(config):
 
 
 async def run_command(command, check=True, shell=False):
-    process = await asyncio.create_subprocess_shell(
-        command if shell else ' '.join(command),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
+    if shell:
+        if isinstance(command, list):
+            command = ' && '.join(command)
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
     stdout, stderr = await process.communicate()
     if check and process.returncode != 0:
         raise subprocess.CalledProcessError(
@@ -63,15 +75,32 @@ async def run_command(command, check=True, shell=False):
     return stdout.decode(), stderr.decode(), process.returncode
 
 
-async def transfer_files(source_files, destination, use_scp=False):
+async def check_command_exists(command):
+    try:
+        await run_command(['which', command])
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+async def transfer_files(source_files, destination, use_scp=False, password=None, scp_options=None):
     host, remote_path = destination.split(':', 1)
-    if not await ensure_remote_directory(host, remote_path):
+    if not await ensure_remote_directory(host, remote_path, password):
         raise Exception(
             f"Failed to create remote directory {remote_path} on {host}")
 
-    command = ['rsync', '-avz', '--progress'] + source_files + \
-        [destination] if not use_scp and shutil.which(
-            'rsync') else ['scp', '-r'] + source_files + [destination]
+    if use_scp or not shutil.which('rsync'):
+        base_command = ['scp', '-r']
+        if scp_options:
+            base_command.extend(scp_options)
+        if password:
+            base_command = ['sshpass', '-p', password] + base_command
+        command = base_command + source_files + [destination]
+    else:
+        command = ['rsync', '-avz', '--progress'] + \
+            source_files + [destination]
+        if password:
+            command = ['sshpass', '-p', password] + command
 
     stdout, stderr, returncode = await run_command(command, check=False)
     if returncode != 0:
@@ -98,8 +127,11 @@ async def retry_with_scp(func, *args, **kwargs):
                 raise
 
 
-async def ensure_remote_directory(host, remote_path):
-    check_dir_command = f"ssh {host} '[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable'"
+async def ensure_remote_directory(host, remote_path, password=None):
+    check_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {host} '[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable'"
+    if password:
+        check_dir_command = f"sshpass -p {password} " + check_dir_command
+
     stdout, stderr, returncode = await run_command(check_dir_command, shell=True, check=False)
 
     if returncode != 0:
@@ -109,7 +141,9 @@ async def ensure_remote_directory(host, remote_path):
     if "exists_writable" in stdout:
         logger.info(
             f"Clearing contents of existing directory {remote_path} on {host}...")
-        clear_dir_command = f"ssh {host} 'rm -rf {remote_path}/*'"
+        clear_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {host} 'rm -rf {remote_path}/*'"
+        if password:
+            clear_dir_command = f"sshpass -p {password} " + clear_dir_command
         _, stderr, returncode = await run_command(clear_dir_command, shell=True, check=False)
         if returncode != 0:
             logger.error(
@@ -117,7 +151,9 @@ async def ensure_remote_directory(host, remote_path):
             return False
     else:
         logger.info(f"Creating remote directory {remote_path} on {host}...")
-        create_dir_command = f"ssh {host} 'mkdir -p {remote_path} && chmod 755 {remote_path}'"
+        create_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {host} 'mkdir -p {remote_path} && chmod 755 {remote_path}'"
+        if password:
+            create_dir_command = f"sshpass -p {password} " + create_dir_command
         _, stderr, returncode = await run_command(create_dir_command, shell=True, check=False)
         if returncode != 0:
             logger.error(f"Failed to create remote directory. Error: {stderr}")
@@ -137,13 +173,13 @@ async def check_network(host, config):
 
 async def setup_ssh_keyless(hosts, password):
     logger.info("Setting up SSH keyless authentication...")
+
     await check_ssh_key()
-    await install_sshpass()
 
     for host in tqdm(hosts, desc="Setting up SSH keyless auth"):
         try:
             logger.info(f"Copying SSH key to {host}...")
-            remove_known_host = f"ssh-keygen -R {host}"
+            remove_known_host = f"ssh-keygen -R {host} || true"
             copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no root@{host}"
             await run_command(remove_known_host, shell=True)
             _, stderr, returncode = await run_command(copy_id, shell=True, check=False)
@@ -237,7 +273,7 @@ echo "{graid_path}/run_in_graid_env.sh"
     return remote_setup_path
 
 
-async def setup_remote_host(host, config):
+async def setup_remote_host(host, config, password=None):
     graid_path = Path(config['graid_path'].replace(
         "{{ ansible_env.HOME }}", os.environ.get('HOME', '')))
     logger.info(f"Setting up {host}...")
@@ -253,10 +289,20 @@ async def setup_remote_host(host, config):
         await retry_with_scp(transfer_files,
                              [str(miniconda_installer),
                               str(remote_setup_path)],
-                             f"{host}:{graid_path}/")
+                             f"{host}:{graid_path}/",
+                             use_scp=True,
+                             password=password,
+                             scp_options=SSH_OPTIONS)
 
         ssh_command = f"bash -x {graid_path}/remote_setup.sh"
-        stdout, stderr, returncode = await run_command(['ssh', host, ssh_command])
+
+        if password:
+            ssh_command = ['sshpass', '-p', password, 'ssh'] + \
+                SSH_OPTIONS + [host, ssh_command]
+        else:
+            ssh_command = ['ssh'] + SSH_OPTIONS + [host, ssh_command]
+
+        stdout, stderr, returncode = await run_command(ssh_command)
         if returncode != 0:
             logger.error(f"Remote setup script execution failed on {host}")
             logger.error(f"Exit code: {returncode}")
@@ -330,13 +376,16 @@ async def install_sshpass():
     logger.info("Checking and installing sshpass...")
 
     # Determine the package manager
-    if await run_command(['which', 'apt'], check=False)[2] == 0:
-        install_cmd = ['sudo', 'apt', 'update', '&&',
-                       'sudo', 'apt', 'install', '-y', 'sshpass']
-    elif await run_command(['which', 'yum'], check=False)[2] == 0:
-        install_cmd = ['sudo', 'yum', 'install', '-y', 'sshpass']
-    elif await run_command(['which', 'zypper'], check=False)[2] == 0:
-        install_cmd = ['sudo', 'zypper', 'install', '-y', 'sshpass']
+    if await check_command_exists('apt'):
+        install_cmd = 'sudo apt update && sudo apt install -y sshpass'
+    elif await check_command_exists('yum'):
+        install_cmd = 'sudo yum install -y sshpass'
+    elif await check_command_exists('zypper'):
+        install_cmd = 'sudo zypper install -y sshpass'
+    elif await check_command_exists('dnf'):  # For newer Fedora versions
+        install_cmd = 'sudo dnf install -y sshpass'
+    elif await check_command_exists('pacman'):  # For Arch-based systems
+        install_cmd = 'sudo pacman -S --noconfirm sshpass'
     else:
         logger.error(
             "Unable to determine package manager. Please install sshpass manually.")
@@ -370,20 +419,38 @@ async def main():
     logger = await setup_logging(config)
 
     logger.info("Preparing setup...")
+
+    logger.info("Checking and installing sshpass..")
+    await install_sshpass()
+
     hosts = await read_inventory(config)
 
     if not hosts:
         logger.error("No hosts found in the inventory file.")
         sys.exit(1)
 
-    password = args.password or os.environ.get('SSH_PASSWORD') or getpass.getpass(
-        "Enter the common password for all hosts: ")
+    # Password handling logic
+    if args.password:
+        password = args.password
+        setup_keyless = False
+    else:
+        setup_choice = input(
+            "Do you want to set up SSH keyless authentication? (y/n): ").lower()
+        if setup_choice == 'y':
+            password = getpass.getpass(
+                "Enter the common password for all hosts (for initial setup): ")
+            setup_keyless = True
+        else:
+            password = getpass.getpass(
+                "Enter the common password for all hosts: ")
+            setup_keyless = False
 
-    await setup_ssh_keyless(hosts, password)
+    if setup_keyless:
+        await setup_ssh_keyless(hosts, password)
 
     logger.info(f"Starting setup for {len(hosts)} hosts...")
 
-    tasks = [setup_remote_host(host, config) for host in hosts]
+    tasks = [setup_remote_host(host, config, password) for host in hosts]
     results = []
     with tqdm(total=len(hosts), desc="Setting up hosts") as pbar:
         for coro in asyncio.as_completed(tasks):
@@ -411,6 +478,7 @@ async def main():
     await run_update_link_script()
 
     logger.info("All tasks completed.")
+
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 7):
