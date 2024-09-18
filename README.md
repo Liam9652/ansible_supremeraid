@@ -66,11 +66,6 @@ We are continuously working to improve this Ansible playbook. Here are some feat
 
 We welcome feedback and suggestions for additional features or improvements.
 
-## License
-
-This project is licensed under the [Your License] - see the LICENSE.md file for details.
-
-
 
 ```
 
@@ -85,22 +80,19 @@ This project is licensed under the [Your License] - see the LICENSE.md file for 
 
 2. Configure the required files:
 
-   a. Edit `vars/download_urls.yaml`:
+   a. Modify the configuration:
 
-   - Add the necessary download links for SupremeRAID packages.
-
-   b. Modify the configuration:
-
-   - Adjust the basic parameters in the section `setup` `/group_vars/all/main.yml`.
+   - Adjust the basic parameters in the section `setup` of `/group_vars/all/main.yml`.
 
    - Adjust RAID parameters according to your requirements in the section `configure` of `/group_vars/all/main_yml`.
+   - Modify the ansible log saving path if you need in the section `default` of `./ansible.cfg`
 
-   c. Prepare the license mapping file:
+   b. Prepare the license mapping file:
 
    - Place your `license_mapping.csv` file in `/roles/configure/files/`.
    - Ensure the file contains the correct mapping between serial numbers and license keys.
 
-   d. Configure / update the `inventory/hosts` file
+   c. Configure / update the `inventory/hosts` file
    [supremraid_servers]
    server1 ansible_host=192.168.1.101 #if needed set the user ansible_user=root
    server2 ansible_host=192.168.1.102
@@ -113,7 +105,9 @@ Note: The `inventory/hosts` file uses localhost in the repo. You can use the ans
 Before run the playbook, you can run the environment setup script, otherwise, please add the correct python interpreter into the host file.
 
 ```
-python3 setup_ansible_environment.py 
+pip install --upgrade pip
+pip install -r requirements.txt
+python3 setup_ansible_environment.py
 
 ```
 
