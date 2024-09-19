@@ -68,7 +68,7 @@
   loop: "{{ install_package_stats.results }}"
   when:
     - ansible_os_family != "Windows"
-    - item.stat.exists or (item.item in download_jobs.results | map(attribute='dest') | list)
+    - item.stat.exists or (item.item | basename in (download_jobs.results | map(attribute='item') | map(attribute='dest') | map('basename') | list))
 
 - name: Download nv dirver to control node
   become: false
@@ -101,7 +101,7 @@
   when:
     - ansible_os_family == "Windows"
 
-- name: Copy nv dirver to remote host
+- name: Copy nv driver to remote host
   become: true
   ansible.windows.win_copy:
     src: "{{ setup.graid_path }}{{ windows.nv_url | basename }}"
