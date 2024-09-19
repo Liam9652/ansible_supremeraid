@@ -94,8 +94,18 @@
       delay: 10
       ignore_unreachable: true
       until: log_content is succeeded
-      failed_when: >
-        '[ERROR]' in log_content.match
+
+    - name: Check for errors in log file
+      ansible.builtin.command: grep -q "\[ERROR\]" /var/log/graid-preinstaller/preinstaller.log
+      register: error_check
+      ignore_errors: true
+      ignore_unreachable: true
+      changed_when: false
+
+    # - name: Fail if error is found in log
+    #   ansible.builtin.fail:
+    #     msg: "Error found in pre-installer log file"
+    #   when: error_check.rc == 0
 
     # - name: Check for error in log content
     #   ansible.builtin.lineinfile:
