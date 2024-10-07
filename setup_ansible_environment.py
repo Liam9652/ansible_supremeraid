@@ -24,6 +24,12 @@ import aiohttp
 import tempfile
 import platform
 import paramiko
+import time
+import fcntl
+from contextlib import contextmanager
+import random
+import textwrap
+
 
 # Constants
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -32,6 +38,27 @@ SSH_OPTIONS = ['-o', 'StrictHostKeyChecking=no',
                '-o', 'UserKnownHostsFile=/dev/null']
 SYSTEM = platform.system().lower()
 MAX_CONCURRENT_TASKS = 5
+
+
+@contextmanager
+def acquire_lock(lock_file):
+    lockf = None
+    try:
+        lockf = open(lock_file, 'w')
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield lockf
+    except IOError:
+        if lockf:
+            lockf.close()
+        raise
+    finally:
+        if lockf:
+            fcntl.flock(lockf, fcntl.LOCK_UN)
+            lockf.close()
+            try:
+                os.remove(lock_file)
+            except OSError:
+                pass
 
 
 async def load_config() -> dict:
@@ -140,13 +167,19 @@ async def run_command(command, check=True, shell=False):
     """
     if shell:
         if isinstance(command, list):
-            command = ' '.join(command)
+            # Change all the elements in the list to strings and join them
+            command = ' '.join(map(str, command))
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
     else:
+        if isinstance(command, str):
+            # If the command is a string, split it into a list
+            command = command.split()
+        # Ensure that the command is a list
+        command = [str(c) for c in command]
         process = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
@@ -206,10 +239,16 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
         raise Exception(
             f"Failed to create remote directory {remote_path} on {user}@{host}")
 
+    for source_file in source_files:
+        if not os.path.exists(source_file):
+            logger.error(
+                f"Source file not found: {source_file} on {user}@{host}")
+            raise FileNotFoundError(f"Source file not found: {source_file}")
+
     if sshpass_available:
         # use scp to transfer files
         if use_scp or not shutil.which('rsync'):
-            base_command = ['scp', '-r']
+            base_command = ['scp', '-r', '-v']
             if scp_options:
                 base_command.extend(scp_options)
             if password:
@@ -223,6 +262,8 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
 
         stdout, stderr, returncode = await run_command(command, check=False)
         if returncode != 0:
+            logger.error(f"File transfer failed. Stdout: {stdout}")
+            logger.error(f"File transfer failed. Stderr: {stderr}")
             raise subprocess.CalledProcessError(returncode, command, stderr)
     else:
         # use paramiko to transfer files
@@ -302,6 +343,10 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
         bool: True if the directory exists and is writable, False otherwise.
     """
     user = host_vars.get('ansible_user', 'root')
+
+    if host in ('localhost', '127.0.0.1'):
+        logger.info(f"Skipping directory clearing for localhost")
+        return True
 
     if sshpass_available:
         logger.info(
@@ -407,84 +452,204 @@ async def setup_ssh_keyless(hosts, password, sshpass_available):
         None
     """
     logger.info("Setting up SSH keyless authentication...")
-
-    await check_ssh_key()
+    try:
+        await check_ssh_key()
+    except Exception as e:
+        logger.error(f"Failed to setup SSH key: {e}")
+        return
 
     for host, host_vars in tqdm(hosts, desc="Setting up SSH keyless auth"):
         user = host_vars.get('ansible_user', 'root')
-        try:
-            logger.info(f"Copying SSH key to {user}@{host}...")
-            # Remove the host from the known hosts file
-            remove_known_host = f"ssh-keygen -R {host} || true"
-            await run_command(remove_known_host, shell=True)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(
+                    f"Copying SSH key to {user}@{host}...(Attempt {attempt + 1}/{max_retries})...")
+                # Remove the host from the known hosts file
+                remove_known_host = f"ssh-keygen -R {host} || true"
+                await run_command(remove_known_host, shell=True)
 
-            if sshpass_available:
-                # Use sshpass to copy ssh key
-                copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no {user}@{host}"
-                _, stderr, returncode = await run_command(copy_id, shell=True, check=False)
-            else:
-                # Use paramiko to copy ssh key
-                ssh = paramiko.SSHClient()
-                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                try:
-                    ssh.connect(host, username=user, password=password)
-                    stdin, stdout, stderr = ssh.exec_command(
-                        'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys', get_pty=True)
-                    stdin.write(open(os.path.expanduser(
-                        '~/.ssh/id_rsa.pub')).read())
-                    stdin.channel.shutdown_write()
-                    returncode = stdout.channel.recv_exit_status()
-                finally:
-                    ssh.close()
+                if sshpass_available:
+                    # Use sshpass to copy ssh key
+                    copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no {user}@{host}"
+                    _, stderr, returncode = await run_command(copy_id, shell=True, check=False)
+                else:
+                    # Use paramiko to copy ssh key
+                    ssh = paramiko.SSHClient()
+                    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    try:
+                        ssh.connect(host, username=user, password=password)
+                        stdin, stdout, stderr = ssh.exec_command(
+                            'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys', get_pty=True)
+                        stdin.write(open(os.path.expanduser(
+                            '~/.ssh/id_rsa.pub')).read())
+                        stdin.channel.shutdown_write()
+                        returncode = stdout.channel.recv_exit_status()
+                    finally:
+                        ssh.close()
 
-            if returncode == 0:
-                logger.info(f"SSH key successfully copied to {user}@{host}")
-            else:
+                if returncode == 0:
+                    logger.info(
+                        f"SSH key successfully copied to {user}@{host}")
+                    break
+                else:
+                    logger.warning(
+                        f"Failed to copy SSH key to {user}@{host} (Attempt {attempt + 1}/{max_retries})")
+                    logger.warning(f"Command output: {stdout.decode()}")
+                    logger.warning(f"Command error: {stderr.decode()}")
+
+                    if attempt == max_retries - 1:
+                        logger.error(
+                            f"All attempts to copy SSH key to {user}@{host} failed.")
+                    else:
+                        logger.info(f"Retrying in 5 seconds...")
+                        await asyncio.sleep(5)
+
+            except Exception as e:
                 logger.error(
-                    f"Failed to copy SSH key to {user}@{host}: {stderr}")
+                    f"Error during SSH key copy for {user}@{host}: {str(e)}")
+                if attempt == max_retries - 1:
+                    logger.error(
+                        f"All attempts to copy SSH key to {user}@{host} failed.")
+                else:
+                    logger.info(f"Retrying in 5 seconds...")
+                    await asyncio.sleep(5)
 
-        except Exception as e:
-            logger.error(
-                f"Failed to set up SSH keyless authentication for {user}@{host}: {str(e)}")
+
+def clear_stale_lock(lock_file, max_age=30):  # 1 hour
+    if os.path.exists(lock_file):
+        if time.time() - os.path.getctime(lock_file) > max_age:
+            try:
+                os.remove(lock_file)
+                logger.warning(f"Removed stale lock file: {lock_file}")
+            except OSError:
+                logger.error(f"Failed to remove stale lock file: {lock_file}")
 
 
-async def download_miniconda(config):
+async def download_miniconda(config, graid_path):
     """
     Downloads the Miniconda installer from the internet and saves it to the
     specified path on the target host.
 
     Args:
         config (dict): The configuration dictionary.
+        graid_path (Path): The path to save the installer.
+        host (str): The hostname for which we're downloading.
 
     Returns:
         Path: The path to the Miniconda installer on the target host.
     """
-    miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh"
-    graid_path = Path(config['graid_path'].replace(
-        "{{ ansible_env.HOME }}", os.environ.get('HOME', '')))
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == 'windows':
+        if machine == 'amd64' or machine == 'x86_64':
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Windows-x86_64.exe"
+        else:
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Windows-x86.exe"
+    elif system == 'darwin':  # macOS
+        if machine == 'arm64':
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-MacOSX-arm64.sh"
+        else:
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-MacOSX-x86_64.sh"
+    elif system == 'linux':
+        if machine == 'x86_64':
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh"
+        elif machine == 'aarch64':
+            miniconda_installer = f"Miniconda3-{config['miniconda_version']}-Linux-aarch64.sh"
+    else:
+        raise ValueError(f"Unsupported system: {system}")
+
     installer_path = graid_path / miniconda_installer
     graid_path.mkdir(parents=True, exist_ok=True)
+    lock_file = graid_path / ".miniconda_download.lock"
 
-    # Download the Miniconda installer if it doesn't exist
-    if not installer_path.exists():
-        logger.info(f"Downloading Miniconda installer to {installer_path}...")
+    logger.info(
+        f"Attempting to acquire global lock for downloading Miniconda installer: {lock_file}")
+    max_retries = 5
+
+    for attempt in range(max_retries):
         try:
-            # Use wget to download the installer
-            await run_command(['wget', f"https://repo.anaconda.com/miniconda/{miniconda_installer}", '-O', str(installer_path)])
+            clear_stale_lock(lock_file)
             logger.info(
-                f"Miniconda installer downloaded successfully to {installer_path}")
+                f"Attempting to acquire lock (Attempt {attempt + 1}/{max_retries})")
+
+            with acquire_lock(lock_file):
+                logger.info(
+                    "Lock acquired for downloading Miniconda installer")
+
+                if not installer_path.exists():
+                    logger.info(
+                        f"Downloading Miniconda installer to {installer_path}... on control node")
+                    url = f"https://repo.anaconda.com/miniconda/{miniconda_installer}"
+                    logger.info(f"Download URL: {url}")
+
+                    if not os.access(graid_path, os.W_OK):
+                        logger.error(
+                            f"No write permission for directory: {graid_path}")
+                        raise PermissionError(f"Cannot write to {graid_path}")
+
+                    async with aiohttp.ClientSession() as session:
+                        logger.info("Starting download...")
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=600)) as response:
+                            logger.info(
+                                f"Received response with status: {response.status}")
+                            if response.status == 200:
+                                content = await response.read()
+                                logger.info(
+                                    f"Content length: {len(content)} bytes")
+                                async with aiofiles.open(installer_path, 'wb') as f:
+                                    await f.write(content)
+                                logger.info(
+                                    f"Miniconda installer downloaded successfully to {installer_path}")
+                            else:
+                                raise Exception(
+                                    f"Failed to download Miniconda installer. Status code: {response.status}")
+                else:
+                    logger.info(
+                        f"Miniconda installer already exists at {installer_path}")
+
+                # Check file size after download
+                file_size = installer_path.stat().st_size
+                logger.info(f"Downloaded file size: {file_size} bytes")
+                if file_size == 0:
+                    raise Exception("Downloaded file is empty")
+
+                return installer_path
+
+        except IOError:
+            logger.warning(
+                "Failed to acquire lock. Another process may be downloading.")
+            if attempt < max_retries - 1:
+                wait_time = random.uniform(1, 5)
+                logger.info(f"Retrying in {wait_time:.2f} seconds...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(
+                    f"Failed to acquire lock after {max_retries} attempts.")
+                raise
         except Exception as e:
-            logger.error(f"Failed to download Miniconda installer: {str(e)}")
-            raise
-    else:
-        logger.info(f"Miniconda installer already exists at {installer_path}")
+            logger.error(f"Error during download: {str(e)}")
+            if attempt < max_retries - 1:
+                wait_time = random.uniform(1, 5)
+                logger.info(f"Retrying in {wait_time:.2f} seconds...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(
+                    f"Failed to download Miniconda after {max_retries} attempts.")
+                raise
 
-    # Check if the installer was downloaded successfully
-    if not installer_path.exists():
-        raise FileNotFoundError(
-            f"Miniconda installer not found at {installer_path}")
+    raise Exception(
+        f"Failed to download Miniconda after {max_retries} attempts")
 
-    return installer_path
+
+def release_lock(lock_file, lockf):
+    fcntl.flock(lockf, fcntl.LOCK_UN)
+    lockf.close()
+    try:
+        os.remove(lock_file)
+    except OSError:
+        pass
 
 
 async def create_remote_setup_script(config, graid_path):
@@ -504,64 +669,66 @@ async def create_remote_setup_script(config, graid_path):
     Returns:
         Path: The path to the remote setup script.
     """
-    remote_setup_script = f"""
-#!/usr/bin/env bash
-set -e
-set -x
+    remote_setup_script = textwrap.dedent(f"""\
+    #!/usr/bin/env bash
+    set -e
+    set -x
+    trap 'echo "Error occurred at line $LINENO"; exit 1' ERR
+    
+    # Create the Graid directory if it doesn't exist
+    echo "Starting remote setup script"
+    echo "Current directory: $(pwd)"
+    echo "Graid path: {graid_path}"
+    mkdir -p {graid_path}
+    echo "Graid directory created/verified"
 
-# Create the Graid directory if it doesn't exist
-echo "Starting remote setup script"
-echo "Current directory: $(pwd)"
-echo "Graid path: {graid_path}"
-mkdir -p {graid_path}
-echo "Graid directory created/verified"
+    # Install Miniconda if it's not already installed
+    if ! command -v conda &> /dev/null; then
+        echo "Conda not found, installing Miniconda"
+        bash {graid_path}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -p {graid_path}/miniconda
+        # Initialize conda for bash and zsh
+        {graid_path}/miniconda/bin/conda init bash
+        {graid_path}/miniconda/bin/conda init zsh
+        # Add the conda bin directory to the PATH
+        export PATH="{graid_path}/miniconda/bin:$PATH"
+    else
+        echo "Conda already installed"
+    fi
 
-# Install Miniconda if it's not already installed
-if ! command -v conda &> /dev/null; then
-    echo "Conda not found, installing Miniconda"
-    bash {graid_path}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -p {graid_path}/miniconda
-    # Initialize conda for bash and zsh
-    {graid_path}/miniconda/bin/conda init bash
-    {graid_path}/miniconda/bin/conda init zsh
-    # Add the conda bin directory to the PATH
-    export PATH="{graid_path}/miniconda/bin:$PATH"
-else
-    echo "Conda already installed"
-fi
+    # Verify that conda is installed correctly
+    sleep 5
+    echo "Conda version: $(conda --version)"
 
-# Verify that conda is installed correctly
-sleep 5
-echo "Conda version: $(conda --version)"
+    # Create the conda environment if it doesn't already exist
+    if ! conda env list | grep -q {config['conda_env_name']}; then
+        echo "Creating conda environment {config['conda_env_name']}"
+        conda create -n {config['conda_env_name']} python={config['python_version']} -y
+    else
+        echo "Conda environment {config['conda_env_name']} already exists"
+    fi
 
-# Create the conda environment if it doesn't already exist
-if ! conda env list | grep -q {config['conda_env_name']}; then
-    echo "Creating conda environment {config['conda_env_name']}"
-    conda create -n {config['conda_env_name']} python={config['python_version']} -y
-else
-    echo "Conda environment {config['conda_env_name']} already exists"
-fi
+    # Create a script to run commands in the Graid environment
+    echo "Creating run_in_graid_env.sh script"
+    cat << EOT > {graid_path}/run_in_graid_env.sh
+    #!/bin/bash
+    # Activate the conda environment
+    source {graid_path}/miniconda/bin/activate {config['conda_env_name']}
+    # Verify that the environment is activated
+    python --version
+    EOT
+    chmod +x {graid_path}/run_in_graid_env.sh
 
-# Create a script to run commands in the Graid environment
-echo "Creating run_in_graid_env.sh script"
-cat << EOT > {graid_path}/run_in_graid_env.sh
-#!/bin/bash
-# Activate the conda environment
-source {graid_path}/miniconda/bin/activate {config['conda_env_name']}
-# Verify that the environment is activated
-python --version
-EOT
-chmod +x {graid_path}/run_in_graid_env.sh
-
-echo "Remote setup completed successfully"
-echo "{graid_path}/run_in_graid_env.sh"
-"""
+    echo "Remote setup completed successfully"
+    echo "{graid_path}/run_in_graid_env.sh"
+    exit 0
+    """)
     remote_setup_path = graid_path / 'remote_setup.sh'
     async with aiofiles.open(remote_setup_path, 'w') as f:
         await f.write(remote_setup_script)
     return remote_setup_path
 
 
-async def setup_remote_host(host, host_vars, config, password=None, use_keyless=False, sshpass_available=False):
+async def setup_remote_host(host, host_vars, config, installer_path, remote_setup_path, password=None, use_keyless=False, sshpass_available=False):
     """
     Sets up a remote host with the required environment.
 
@@ -587,59 +754,169 @@ async def setup_remote_host(host, host_vars, config, password=None, use_keyless=
         return False
 
     try:
-        # Download the Miniconda installer
-        miniconda_installer = await download_miniconda(config)
+        if host in ('localhost', '127.0.0.1'):
+            remote_setup_script = graid_path / 'remote_setup.sh'
+            if not remote_setup_script.exists():
+                logger.error(
+                    f"Remote setup script not found at {remote_setup_script}")
+                return False
 
-        # Create the remote setup script
-        remote_setup_path = await create_remote_setup_script(config, graid_path)
+            os.chmod(remote_setup_script, 0o755)
+            stdout, stderr, returncode = await run_command(['bash', str(remote_setup_script)], shell=False)
+            if returncode != 0:
+                logger.error(f"Local setup script execution failed: {stdout}")
+                logger.error(f"Exit code: {returncode}")
+                logger.error(f"STDOUT: {stdout}")
+                logger.error(f"STDERR: {stderr}")
+                return False
 
-        # Transfer the Miniconda installer and the remote setup script to the host
-        await retry_with_scp(transfer_files,
-                             [str(miniconda_installer),
-                              str(remote_setup_path)],
-                             f"{host}:{graid_path}/",
-                             host_vars,
-                             use_scp=True,
-                             password=password,
-                             scp_options=SSH_OPTIONS,
-                             sshpass_available=sshpass_available)
+            remote_python_path = graid_path / 'miniconda' / \
+                "envs" / config['conda_env_name'] / 'bin' / 'python'
+            logger.info(f"Remote Python path on {host}: {remote_python_path}")
+            # inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
+            inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
+            await update_ansible_inventory(host, host_vars, remote_python_path, inventory_path)
 
-        # Run the remote setup script
-        ssh_command = f"bash -x {graid_path}/remote_setup.sh"
-        if sshpass_available and password and not use_keyless:
-            ssh_command = ['sshpass', '-p', password, 'ssh'] + \
-                SSH_OPTIONS + [f"{user}@{host}", ssh_command]
+            logger.info(f"Setup completed for {user}@{host}")
+            return True
         else:
-            ssh_command = ['ssh'] + SSH_OPTIONS + \
-                [f"{user}@{host}", ssh_command]
-        if isinstance(ssh_command, list):
-            ssh_command = ' '.join(ssh_command)
+            await retry_with_scp(
+                transfer_files,
+                [str(installer_path), str(remote_setup_path)],
+                f"{host}:{graid_path}/",
+                host_vars,
+                use_scp=True,
+                password=password,
+                scp_options=SSH_OPTIONS,
+                sshpass_available=sshpass_available
+            )
+            ssh_command = f"bash -x {graid_path}/remote_setup.sh"
+            if sshpass_available and password and not use_keyless:
+                ssh_command = ['sshpass', '-p', password, 'ssh'] + \
+                    SSH_OPTIONS + [f"{user}@{host}", ssh_command]
+            else:
+                ssh_command = ['ssh'] + SSH_OPTIONS + \
+                    [f"{user}@{host}", ssh_command]
+            if isinstance(ssh_command, list):
+                ssh_command = ' '.join(ssh_command)
 
-        if sshpass_available or use_keyless:
-            stdout, stderr, returncode = await run_command(ssh_command, shell=True)
-        else:
-            stdout, stderr, returncode = await ssh_connect(host, user, password, ssh_command)
+            if sshpass_available or use_keyless:
+                stdout, stderr, returncode = await run_command(ssh_command, shell=True)
+            else:
+                stdout, stderr, returncode = await ssh_connect(host, user, password, ssh_command)
 
-        if returncode != 0:
-            logger.error(
-                f"Remote setup script execution failed on {user}@{host}")
-            logger.error(f"Exit code: {returncode}")
-            logger.error(f"STDOUT: {stdout}")
-            logger.error(f"STDERR: {stderr}")
-            return False
+            if returncode != 0:
+                logger.error(
+                    f"Remote setup script execution failed on {user}@{host}")
+                logger.error(f"Exit code: {returncode}")
+                logger.error(f"STDOUT: {stdout}")
+                logger.error(f"STDERR: {stderr}")
+                return False
+            # else:
+            #     logger.info(
+            #         f"Remote setup script executed successfully on {user}@{host}")
+            #     logger.info(f"STDOUT: {stdout}")
+            #     logger.info(f"STDERR: {stderr}")
 
-        # Update the Ansible inventory file with the new remote Python interpreter path
-        remote_python_path = graid_path / "miniconda" / \
-            "envs" / config['conda_env_name'] / "bin" / "python"
-        logger.info(f"Python interpreter path on {host}: {remote_python_path}")
+            remote_python_path = graid_path / "miniconda" / \
+                "envs" / config['conda_env_name'] / "bin" / "python"
+            logger.info(
+                f"Python interpreter path on {host}: {remote_python_path}")
 
-        inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
-        await update_ansible_inventory(host, host_vars, remote_python_path, inventory_path)
+            inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
+            await update_ansible_inventory(host, host_vars, remote_python_path, inventory_path)
 
-        logger.info(f"Setup completed for {user}@{host}")
-        return True
+            logger.info(f"Setup completed for {user}@{host}")
+            return True
+
+    # try:
+
+    #     # Create the remote setup script
+    #     remote_setup_path = await create_remote_setup_script(config, graid_path)
+    #     if host not in ('localhost', '127.0.0.1'):
+    #         # Transfer the Miniconda installer and the remote setup script to the host
+    #         await retry_with_scp(transfer_files,
+    #                              [str(installer_path),
+    #                               str(remote_setup_path)],
+    #                              f"{host}:{graid_path}/",
+    #                              host_vars,
+    #                              use_scp=True,
+    #                              password=password,
+    #                              scp_options=SSH_OPTIONS,
+    #                              sshpass_available=sshpass_available)
+
+    #     else:
+    #         logger.info(f"Skipping transfer file to localhost")
+
+    #     if host in ('localhost', '127.0.0.1'):
+    #         logger.info(f"Setup the environment on localhost")
+    #         remote_setup_path = graid_path / 'remote_setup.sh'
+    #         if not remote_setup_path.exists():
+    #             logger.error(
+    #                 f"Remote setup script not found on localhost: {remote_setup_path}")
+    #             return False
+
+    #         os.chmod(remote_setup_path, 0o755)
+    #         stdout, stderr, returncode = await run_command(
+    #             [str(remote_setup_path)], shell=False)
+    #         if returncode != 0:
+    #             logger.error(f"Local setup script execution failed")
+    #             logger.error(f"Exit code: {returncode}")
+    #             logger.error(f"STDOUT: {stdout}")
+    #             logger.error(f"STDERR: {stderr}")
+    #             return False
+    #         logger.info(f"Update Ansible inventory on localhost")
+    #         remote_python_path = graid_path / 'miniconda' / 'bin' / 'python'
+    #         logger.info(f"Python interpreter path: {remote_python_path}")
+    #         inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
+    #         await update_ansible_inventory(
+    #             host, host_vars, remote_python_path, inventory_path)
+    #         logger.info(
+    #             f"Local setup completed successfully for {user}@{host}")
+    #         return True
+    #     else:
+    #         # Run the remote setup script
+    #         ssh_command = f"bash -x {graid_path}/remote_setup.sh"
+    #         if sshpass_available and password and not use_keyless:
+    #             ssh_command = ['sshpass', '-p', password, 'ssh'] + \
+    #                 SSH_OPTIONS + [f"{user}@{host}", ssh_command]
+    #         else:
+    #             ssh_command = ['ssh'] + SSH_OPTIONS + \
+    #                 [f"{user}@{host}", ssh_command]
+    #         if isinstance(ssh_command, list):
+    #             ssh_command = ' '.join(ssh_command)
+
+    #         if sshpass_available or use_keyless:
+    #             stdout, stderr, returncode = await run_command(ssh_command, shell=True)
+    #         else:
+    #             stdout, stderr, returncode = await ssh_connect(host, user, password, ssh_command)
+
+    #         if returncode != 0:
+    #             logger.error(
+    #                 f"Remote setup script execution failed on {user}@{host}")
+    #             logger.error(f"Exit code: {returncode}")
+    #             logger.error(f"STDOUT: {stdout}")
+    #             logger.error(f"STDERR: {stderr}")
+    #             return False
+
+    #         # Update the Ansible inventory file with the new remote Python interpreter path
+    #         remote_python_path = graid_path / "miniconda" / \
+    #             "envs" / config['conda_env_name'] / "bin" / "python"
+    #         logger.info(
+    #             f"Python interpreter path on {host}: {remote_python_path}")
+
+    #         inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
+    #         await update_ansible_inventory(host, host_vars, remote_python_path, inventory_path)
+
+    #         logger.info(f"Setup completed for {user}@{host}")
+    #         return True
+    except FileNotFoundError as e:
+        logger.error(
+            f"File not found error during setup for {user}@{host}: {str(e)}")
+        return False
     except Exception as e:
-        logger.error(f"Setup failed for {user}@{host}: {str(e)}")
+        logger.error(
+            f"Unexpected error during setup for {user}@{host}: {str(e)}")
         return False
 
 
@@ -695,7 +972,7 @@ async def run_update_link_script(config):
     try:
         metadata_path = config.get('metadata_file', 'metadata.json')
         yaml_path = Path(config.get('download_urls_yaml',
-                         'group_vars/all/download_urls.yml'))
+                                    'group_vars/all/download_urls.yml'))
 
         # Check if metadata_path is a URL
         if metadata_path.startswith('http://') or metadata_path.startswith('https://'):
@@ -794,7 +1071,7 @@ async def install_sshpass() -> bool:
     If installation fails, it prompts the user to either exit the script or
     continue without sshpass.
     """
-    logger.info("Checking and installing sshpass...")
+    # logger.info("Checking and installing sshpass...")
 
     if SYSTEM == 'linux':
         # Determine the package manager
@@ -890,11 +1167,22 @@ async def check_ssh_key():
     Checks if an SSH key exists in the default location, and generates one if it doesn't.
     """
     key_path = os.path.expanduser('~/.ssh/id_rsa')
-    if not os.path.exists(key_path):
+    pub_key_path = key_path + '.pub'
+    if not os.path.exists(key_path) or not os.path.exists(pub_key_path):
         # If the key doesn't exist, generate a new one
         logger.info("SSH key not found. Generating a new one...")
         await run_command(['ssh-keygen', '-t', 'rsa', '-N', '', '-f', key_path])
-        logger.info("SSH key generated successfully.")
+
+        for _ in range(30):  # Wait up to 30 seconds for the key to be generated
+            if os.path.exists(key_path) and os.path.exists(pub_key_path):
+                if os.path.getsize(key_path) > 0 and os.path.getsize(pub_key_path) > 0:
+                    logger.info("SSH key generated successfully.")
+                    return
+            time.sleep(1)
+
+        raise Exception("Failed to generate SSH key or key file is empty.")
+
+        # logger.info("SSH key generated successfully.")
     else:
         # If the key exists, just log a message
         logger.info("Existing SSH key found.")
@@ -913,6 +1201,9 @@ async def main():
     config = await load_config()
     global logger
     logger = await setup_logging(config)
+
+    graid_path = Path(config['graid_path'].replace(
+        "{{ ansible_env.HOME }}", os.environ.get('HOME', '')))
 
     logger.info("Preparing setup...")
 
@@ -950,8 +1241,22 @@ async def main():
         Sets up a host using the semaphore to limit the number of concurrent tasks.
         """
         async with semaphore:
-            return await setup_remote_host(host, host_vars, config, password=password, use_keyless=setup_keyless,
-                                           sshpass_available=sshpass_available)
+            return await setup_remote_host(
+                host,
+                host_vars,
+                config,
+                installer_path,
+                remote_setup_path,
+                password=password,
+                use_keyless=setup_keyless,
+                sshpass_available=sshpass_available
+            )
+
+    # Download Miniconda installer once
+    installer_path = await download_miniconda(config, graid_path)
+
+    # Create remote_setup.sh and get the path
+    remote_setup_path = await create_remote_setup_script(config, graid_path)
 
     logger.info(f"Starting setup for {len(hosts)} hosts...")
     tasks = [setup_host_with_semaphore(host, host_vars)
