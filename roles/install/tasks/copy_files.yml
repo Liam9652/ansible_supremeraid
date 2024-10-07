@@ -68,7 +68,7 @@
   loop: "{{ install_package_stats.results }}"
   when:
     - ansible_os_family != "Windows"
-    - item.stat.exists or (item.item | basename in (download_jobs.results | map(attribute='item') | map(attribute='dest') | map('basename') | list))
+    - item.stat.exists or (download_jobs.changed and item.item | basename in (download_jobs.results | selectattr('changed', 'defined') | map(attribute='dest') | map('basename') | list))
 
 - name: Download nv dirver to control node
   become: false
