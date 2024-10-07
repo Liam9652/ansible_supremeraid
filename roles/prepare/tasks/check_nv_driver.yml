@@ -153,29 +153,53 @@
         - nvidia_modeset
         - nvidia
 
-    - name: Uninstall NVIDIA driver (Debian/Ubuntu)
-      ansible.builtin.apt:
-        name:
-          - nvidia-*
-        state: absent
-        purge: true
-        autoremove: true
+    - name: Check NVIDIA driver installation (Debian/Ubuntu)
+      ansible.builtin.command: dpkg-query -l | grep -i nvidia | grep ^ii
+      register: nvidia_check_deb
+      failed_when: false
+      changed_when: false
       when: ansible_os_family == "Debian"
 
-    - name: Uninstall NVIDIA driver (Red Hat/CentOS)
-      ansible.builtin.dnf:
-        name:
-          - nvidia-*
-        state: absent
-        autoremove: true
+    - name: Uninstall NVIDIA driver (Debian/Ubuntu)
+      ansible.builtin.shell: |
+        apt-get remove -y $(dpkg-query -l | grep -i nvidia | grep ^ii | awk '{print $2}')
+        apt-get purge -y $(dpkg-query -l | grep -i nvidia | grep ^ii | awk '{print $2}')
+        apt-get autoremove -y
+      when: 
+        - ansible_os_family == "Debian"
+        - nvidia_check_deb.stdout_lines | length > 0
+      register: uninstall_result
+
+    - name: Check NVIDIA driver installation (Red Hat/CentOS)
+      ansible.builtin.shell: rpm -qa | grep -i nvidia
+      register: nvidia_check_rpm
+      failed_when: false
+      changed_when: false
       when: ansible_os_family == "RedHat"
 
-    - name: Uninstall NVIDIA driver (SUSE)
-      community.general.zypper:
-        name:
-          - nvidia-*
-        state: absent
+    - name: Uninstall NVIDIA driver (Red Hat/CentOS)
+      ansible.builtin.shell: |
+        dnf remove -y $(rpm -qa | grep -i nvidia)
+        dnf autoremove -y
+      when: 
+        - ansible_os_family == "RedHat"
+        - nvidia_check_rpm.stdout_lines | length > 0
+      register: uninstall_result_rpm
+
+    - name: Check NVIDIA driver installation (SUSE)
+      ansible.builtin.shell: rpm -qa | grep -i nvidia
+      register: nvidia_check_suse
+      failed_when: false
+      changed_when: false
       when: ansible_os_family == "Suse"
+    
+    - name: Uninstall NVIDIA driver (SUSE)
+      ansible.builtin.shell: |
+        zypper remove -y $(rpm -qa | grep -i nvidia)
+      when: 
+        - ansible_os_family == "Suse"
+        - nvidia_check_suse.stdout_lines | length > 0
+      register: uninstall_result_suse
 
     - name: Run NVIDIA uninstall script
       ansible.builtin.command: /usr/bin/nvidia-uninstall --s --q
