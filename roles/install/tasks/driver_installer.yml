@@ -4,6 +4,12 @@
 - name: Check if the conf file exists
   ansible.builtin.stat:
     path: "/etc/graid.ansible.conf"
+  register: ansible_conf_stats
+  become: true
+
+- name: Check if the graid.conf file exists
+  ansible.builtin.stat:
+    path: "/etc/graid.conf"
   register: driver_conf_stats
   become: true
 
@@ -49,7 +55,14 @@
   when: found_files.matched == 0
 
 - name: Determine execute or not
-  when: installation_type | int != 0 or  driver_conf_stats.stat.exists is not defined or not driver_conf_stats.stat.exists
+  when: >
+    installation_type == "unknown" or
+    installation_type | int != 0 or
+    driver_conf_stats.stat.exists is not defined or
+    ansible_conf_stats.stat.exists is not defined or
+    not driver_conf_stats.stat.exists or
+    not ansible_conf_stats.stat.exists
+  become: true
   block:
     - name: Check if the old_installation-installer log file exists
       ansible.builtin.stat:
@@ -86,7 +99,9 @@
     - name: Monitor installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
-        search_regex: "\\[INFO\\] Asking reboot\\?"
+        search_regex: >-
+          (\\[INFO\\] Asking reboot\\?)|
+          (\\[INFO\\]\\s*The installation was successful\\.)
         timeout: "{{ general.timeout | int / 10 }}" # 180 * 10 seconds = 1800 seconds = 30 minutes
       register: log_content
       become: true
