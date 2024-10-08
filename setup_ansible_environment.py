@@ -224,7 +224,7 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
     Args:
         source_files (list): The list of files to transfer.
         destination (str): The destination in the format of "host:remote_path".
-        host_vars (dict): The host variables, including the username.
+        host_vars (dict): The host variables, including the username and port.
         use_scp (bool, optional): Whether to use scp or rsync. Defaults to False.
         password (str, optional): The password for the host. Defaults to None.
         scp_options (list, optional): The options to pass to the scp command. Defaults to None.
@@ -233,30 +233,32 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
     Returns:
         str: The stdout of the command.
     """
-    user = host_vars.get('ansible_user', 'root')
+    user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+    port = host_vars.get('ansible_port', '22')
     host, remote_path = destination.split(':', 1)
     if not await ensure_remote_directory(host, host_vars, remote_path, password, sshpass_available):
         raise Exception(
-            f"Failed to create remote directory {remote_path} on {user}@{host}")
+            f"Failed to create remote directory {remote_path} on {user}@{host}:{port}")
 
     for source_file in source_files:
         if not os.path.exists(source_file):
             logger.error(
-                f"Source file not found: {source_file} on {user}@{host}")
+                f"Source file not found: {source_file} on {user}@{host}:{port}")
             raise FileNotFoundError(f"Source file not found: {source_file}")
 
     if sshpass_available:
         # use scp to transfer files
         if use_scp or not shutil.which('rsync'):
-            base_command = ['scp', '-r', '-v']
+            base_command = ['scp', '-r', '-v', '-P', port]
             if scp_options:
                 base_command.extend(scp_options)
             if password:
                 base_command = ['sshpass', '-p', password] + base_command
-            command = base_command + source_files + [f"{user}@{destination}"]
+            command = base_command + source_files + \
+                [f"{user}@{host}:{remote_path}"]
         else:
-            command = ['rsync', '-avz', '--progress'] + \
-                source_files + [f"{user}@{destination}"]
+            command = ['rsync', '-avz', '--progress', f'-e ssh -p {port}'] + \
+                source_files + [f"{user}@{host}:{remote_path}"]
             if password:
                 command = ['sshpass', '-p', password] + command
 
@@ -270,7 +272,7 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            ssh.connect(host, username=user, password=password)
+            ssh.connect(host, port=int(port), username=user, password=password)
             with ssh.open_sftp() as sftp:
                 for source_file in source_files:
                     remote_file = os.path.join(
@@ -329,20 +331,8 @@ async def retry_with_scp(func, *args, **kwargs):
 
 
 async def ensure_remote_directory(host, host_vars, remote_path, password=None, sshpass_available=False):
-    """
-    Ensure that a remote directory exists and is writable.
-
-    Args:
-        host (str): The hostname or IP address of the host to check.
-        host_vars (dict): The host variables, including the username.
-        remote_path (str): The path of the directory to check.
-        password (str, optional): The password for the host. Defaults to None.
-        sshpass_available (bool, optional): Whether sshpass is available. Defaults to False.
-
-    Returns:
-        bool: True if the directory exists and is writable, False otherwise.
-    """
-    user = host_vars.get('ansible_user', 'root')
+    user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+    port = host_vars.get('ansible_port', '22')
 
     if host in ('localhost', '127.0.0.1'):
         logger.info(f"Skipping directory clearing for localhost")
@@ -351,7 +341,7 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
     if sshpass_available:
         logger.info(
             f"Check if remote directory {remote_path} exists and is writable using sshpass...")
-        check_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {user}@{host} '[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable'"
+        check_dir_command = f"ssh {' '.join(SSH_OPTIONS)} -p {port} {user}@{host} '[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable'"
         if password:
             check_dir_command = f"sshpass -p {password} " + check_dir_command
 
@@ -364,7 +354,7 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
         if "exists_writable" in stdout:
             logger.info(
                 f"Clearing contents of existing directory {remote_path} on {user}@{host}...")
-            clear_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {user}@{host} 'rm -rf {remote_path}/*'"
+            clear_dir_command = f"ssh {' '.join(SSH_OPTIONS)} -p {port} {user}@{host} 'rm -rf {remote_path}/*'"
             if password:
                 clear_dir_command = f"sshpass -p {password} " + \
                     clear_dir_command
@@ -376,7 +366,7 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
         else:
             logger.info(
                 f"Creating remote directory {remote_path} on {user}@{host}...")
-            create_dir_command = f"ssh {' '.join(SSH_OPTIONS)} {user}@{host} 'mkdir -p {remote_path} && chmod 755 {remote_path}'"
+            create_dir_command = f"ssh {' '.join(SSH_OPTIONS)} -p {port} {user}@{host} 'mkdir -p {remote_path} && chmod 755 {remote_path}'"
             if password:
                 create_dir_command = f"sshpass -p {password} " + \
                     create_dir_command
@@ -392,18 +382,31 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            ssh.connect(host, username=user, password=password)
-            # check if remote directory exists and is writable
+            ssh.connect(host, port=int(port), username=user, password=password)
+
+            # Check if remote directory exists and is writable
             stdin, stdout, stderr = ssh.exec_command(
                 f'[ -d {remote_path} ] && [ -w {remote_path} ] && echo exists_writable || echo not_exists_or_not_writable')
-            output = stdout.read().decode()
-            if 'exists_writable' in output:
-                # clear contents of existing directory
+            output = stdout.read().decode().strip()
+
+            if output == 'exists_writable':
+                logger.info(
+                    f"Clearing contents of existing directory {remote_path} on {user}@{host}...")
                 ssh.exec_command(f'rm -rf {remote_path}/*')
             else:
-                # create remote directory
+                logger.info(
+                    f"Creating remote directory {remote_path} on {user}@{host}...")
                 ssh.exec_command(
                     f'mkdir -p {remote_path} && chmod 755 {remote_path}')
+
+            # Verify the directory was created or cleared successfully
+            stdin, stdout, stderr = ssh.exec_command(
+                f'[ -d {remote_path} ] && [ -w {remote_path} ] && echo success || echo failure')
+            if stdout.read().decode().strip() != 'success':
+                logger.error(
+                    f"Failed to create or clear remote directory {remote_path} on {user}@{host}")
+                return False
+
         except Exception as e:
             logger.error(
                 f"Failed to ensure remote directory via paramiko: {e}")
@@ -414,26 +417,34 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
     return True
 
 
-async def check_network(host, config):
+async def check_network(host, host_vars, config):
     """
-    Checks if a host is reachable via ping.
+    Checks if a host is reachable via SSH by attempting to establish a connection.
 
     Args:
         host (str): The hostname or IP address of the host to check.
+        port (str): The SSH port to use for the connection.
         config (dict): The configuration dictionary.
 
     Returns:
         bool: True if the host is reachable, False otherwise.
     """
     try:
-        # Run a ping command with the specified count and timeout
-        _, _, returncode = await run_command(['ping', '-c', str(config['ping_count']), '-W', str(config['ping_timeout']), host])
-        # If the ping command returns 0, the host is reachable
-        return returncode == 0
+        user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+        port = host_vars.get('ansible_port', '22')
+        logger.debug(
+            f"Attempting to connect to {host}:{port} with username {user}...")
+        command = f"ssh -o BatchMode=yes -p {port} {user}@{host} exit"
+        stdout, stderr, returncode = await run_command(command, shell=True, check=False)
+        if returncode == 0:
+            logger.info(f"Successfully connected to {host}:{port}")
+            return True
+        else:
+            logger.warning(
+                f"SSH connection failed for {host}:{port}: {stderr}")
     except Exception as e:
-        # If the ping command fails, log a warning and return False
-        logger.warning(f"Network check failed for {host}: {str(e)}")
-        return False
+        logger.warning(f"Network check failed for {host}:{port}: {str(e)}")
+    return False
 
 
 async def setup_ssh_keyless(hosts, password, sshpass_available):
@@ -459,26 +470,28 @@ async def setup_ssh_keyless(hosts, password, sshpass_available):
         return
 
     for host, host_vars in tqdm(hosts, desc="Setting up SSH keyless auth"):
-        user = host_vars.get('ansible_user', 'root')
+        user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+        port = host_vars.get('ansible_port', '22')
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 logger.info(
-                    f"Copying SSH key to {user}@{host}...(Attempt {attempt + 1}/{max_retries})...")
+                    f"Copying SSH key to {user}@{host}:{port}...(Attempt {attempt + 1}/{max_retries})...")
                 # Remove the host from the known hosts file
-                remove_known_host = f"ssh-keygen -R {host} || true"
+                remove_known_host = f"ssh-keygen -R [{host}]:{port} || true"
                 await run_command(remove_known_host, shell=True)
 
                 if sshpass_available:
                     # Use sshpass to copy ssh key
-                    copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no {user}@{host}"
+                    copy_id = f"sshpass -p {password} ssh-copy-id -o StrictHostKeyChecking=no -p {port} {user}@{host}"
                     _, stderr, returncode = await run_command(copy_id, shell=True, check=False)
                 else:
                     # Use paramiko to copy ssh key
                     ssh = paramiko.SSHClient()
                     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                     try:
-                        ssh.connect(host, username=user, password=password)
+                        ssh.connect(host, port=int(port),
+                                    username=user, password=password)
                         stdin, stdout, stderr = ssh.exec_command(
                             'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys', get_pty=True)
                         stdin.write(open(os.path.expanduser(
@@ -490,27 +503,27 @@ async def setup_ssh_keyless(hosts, password, sshpass_available):
 
                 if returncode == 0:
                     logger.info(
-                        f"SSH key successfully copied to {user}@{host}")
+                        f"SSH key successfully copied to {user}@{host}:{port}")
                     break
                 else:
                     logger.warning(
-                        f"Failed to copy SSH key to {user}@{host} (Attempt {attempt + 1}/{max_retries})")
-                    logger.warning(f"Command output: {stdout.decode()}")
-                    logger.warning(f"Command error: {stderr.decode()}")
+                        f"Failed to copy SSH key to {user}@{host}:{port} (Attempt {attempt + 1}/{max_retries})")
+                    logger.warning(f"Command output: {stdout.read().decode()}")
+                    logger.warning(f"Command error: {stderr.read().decode()}")
 
                     if attempt == max_retries - 1:
                         logger.error(
-                            f"All attempts to copy SSH key to {user}@{host} failed.")
+                            f"All attempts to copy SSH key to {user}@{host}:{port} failed.")
                     else:
                         logger.info(f"Retrying in 5 seconds...")
                         await asyncio.sleep(5)
 
             except Exception as e:
                 logger.error(
-                    f"Error during SSH key copy for {user}@{host}: {str(e)}")
+                    f"Error during SSH key copy for {user}@{host}:{port}: {str(e)}")
                 if attempt == max_retries - 1:
                     logger.error(
-                        f"All attempts to copy SSH key to {user}@{host} failed.")
+                        f"All attempts to copy SSH key to {user}@{host}:{port} failed.")
                 else:
                     logger.info(f"Retrying in 5 seconds...")
                     await asyncio.sleep(5)
@@ -652,7 +665,7 @@ def release_lock(lock_file, lockf):
         pass
 
 
-async def create_remote_setup_script(config, graid_path):
+async def create_remote_setup_script(config, graid_path, user):
     """
     Creates a remote setup script on the target host.
 
@@ -722,7 +735,10 @@ async def create_remote_setup_script(config, graid_path):
     echo "{graid_path}/run_in_graid_env.sh"
     exit 0
     """)
-    remote_setup_path = graid_path / 'remote_setup.sh'
+    local_graid_path = Path(SCRIPT_DIR) / 'temp_scripts'
+    local_graid_path.mkdir(parents=True, exist_ok=True)
+
+    remote_setup_path = local_graid_path / 'remote_setup.sh'
     async with aiofiles.open(remote_setup_path, 'w') as f:
         await f.write(remote_setup_script)
     return remote_setup_path
@@ -743,17 +759,27 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
     Returns:
         bool: True if the setup was successful, False otherwise.
     """
-    user = host_vars.get('ansible_user', 'root')
-    graid_path = Path(config['graid_path'].replace(
-        "{{ ansible_env.HOME }}", os.environ.get('HOME', '')))
-    logger.info(f"Setting up {user}@{host}...")
+    user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+    port = host_vars.get('ansible_port', '22')
+    if user == 'root':
+        graid_path = Path(config['graid_path'].replace(
+            "{{ ansible_env.HOME }}", "/root"))
+    else:
+        graid_path = Path(config['graid_path'].replace(
+            "{{ ansible_env.HOME }}", f"/home/{user}"))
+    logger.info(f"Setting up {user}@{host}:{port}...")
+    logger.info(f"Using graid_path: {graid_path}")
 
     # Check if the host is reachable
-    if not await check_network(host, config):
+    if not await check_network(host, host_vars, config):
         logger.warning(f"Skipping setup for {host} due to network issues")
         return False
 
     try:
+        if not await ensure_remote_directory(host, host_vars, graid_path, password, sshpass_available):
+            raise Exception(
+                f"Failed to create remote directory {graid_path} on {user}@{host}:{port}")
+
         if host in ('localhost', '127.0.0.1'):
             remote_setup_script = graid_path / 'remote_setup.sh'
             if not remote_setup_script.exists():
@@ -773,7 +799,6 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
             remote_python_path = graid_path / 'miniconda' / \
                 "envs" / config['conda_env_name'] / 'bin' / 'python'
             logger.info(f"Remote Python path on {host}: {remote_python_path}")
-            # inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
             inventory_path = Path(SCRIPT_DIR).parent / config['inventory_file']
             await update_ansible_inventory(host, host_vars, remote_python_path, inventory_path)
 
@@ -792,10 +817,10 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
             )
             ssh_command = f"bash -x {graid_path}/remote_setup.sh"
             if sshpass_available and password and not use_keyless:
-                ssh_command = ['sshpass', '-p', password, 'ssh'] + \
+                ssh_command = ['sshpass', '-p', password, 'ssh', '-p', port] + \
                     SSH_OPTIONS + [f"{user}@{host}", ssh_command]
             else:
-                ssh_command = ['ssh'] + SSH_OPTIONS + \
+                ssh_command = ['ssh', '-p', port] + SSH_OPTIONS + \
                     [f"{user}@{host}", ssh_command]
             if isinstance(ssh_command, list):
                 ssh_command = ' '.join(ssh_command)
@@ -807,16 +832,11 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
 
             if returncode != 0:
                 logger.error(
-                    f"Remote setup script execution failed on {user}@{host}")
+                    f"Remote setup script execution failed on {user}@{host}:{port}")
                 logger.error(f"Exit code: {returncode}")
                 logger.error(f"STDOUT: {stdout}")
                 logger.error(f"STDERR: {stderr}")
                 return False
-            # else:
-            #     logger.info(
-            #         f"Remote setup script executed successfully on {user}@{host}")
-            #     logger.info(f"STDOUT: {stdout}")
-            #     logger.info(f"STDERR: {stderr}")
 
             remote_python_path = graid_path / "miniconda" / \
                 "envs" / config['conda_env_name'] / "bin" / "python"
@@ -829,6 +849,14 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
             logger.info(f"Setup completed for {user}@{host}")
             return True
 
+    except FileNotFoundError as e:
+        logger.error(
+            f"File not found error during setup for {user}@{host}:{port}: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during setup for {user}@{host}:{port}: {str(e)}")
+        return False
     # try:
 
     #     # Create the remote setup script
@@ -910,14 +938,14 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
 
     #         logger.info(f"Setup completed for {user}@{host}")
     #         return True
-    except FileNotFoundError as e:
-        logger.error(
-            f"File not found error during setup for {user}@{host}: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(
-            f"Unexpected error during setup for {user}@{host}: {str(e)}")
-        return False
+    # except FileNotFoundError as e:
+    #     logger.error(
+    #         f"File not found error during setup for {user}@{host}: {str(e)}")
+    #     return False
+    # except Exception as e:
+    #     logger.error(
+    #         f"Unexpected error during setup for {user}@{host}: {str(e)}")
+    #     return False
 
 
 async def update_ansible_inventory(host, host_vars, remote_python_path, inventory_path):
@@ -1135,7 +1163,7 @@ async def handle_sshpass_installation_failure() -> bool:
             print("Invalid choice. Please enter 'e' to exit or 'c' to continue.")
 
 
-async def ssh_connect(host, username, password, command):
+async def ssh_connect(host, username, password, command, port=22):
     """
     Connects to a host using SSH and executes a command.
 
@@ -1144,6 +1172,7 @@ async def ssh_connect(host, username, password, command):
         username (str): The username to use for the SSH connection.
         password (str): The password to use for the SSH connection.
         command (str): The command to execute on the remote host.
+        port (int, optional): The SSH port to use. Defaults to 22.
 
     Returns:
         tuple: A tuple containing the stdout, stderr, and exit status of the command.
@@ -1152,7 +1181,7 @@ async def ssh_connect(host, username, password, command):
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         # Connect to the host using SSH
-        client.connect(host, username=username, password=password)
+        client.connect(host, port=port, username=username, password=password)
         # Execute the command
         stdin, stdout, stderr = client.exec_command(command)
         # Return the stdout, stderr, and exit status
@@ -1246,7 +1275,7 @@ async def main():
                 host_vars,
                 config,
                 installer_path,
-                remote_setup_path,
+                remote_setup_scripts[host],
                 password=password,
                 use_keyless=setup_keyless,
                 sshpass_available=sshpass_available
@@ -1256,7 +1285,16 @@ async def main():
     installer_path = await download_miniconda(config, graid_path)
 
     # Create remote_setup.sh and get the path
-    remote_setup_path = await create_remote_setup_script(config, graid_path)
+    remote_setup_scripts = {}
+    for host, host_vars in hosts:
+        user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+        if user == 'root':
+            graid_path = Path(config['graid_path'].replace(
+                "{{ ansible_env.HOME }}", "/root"))
+        else:
+            graid_path = Path(config['graid_path'].replace(
+                "{{ ansible_env.HOME }}", f"/home/{user}"))
+        remote_setup_scripts[host] = await create_remote_setup_script(config, graid_path, user)
 
     logger.info(f"Starting setup for {len(hosts)} hosts...")
     tasks = [setup_host_with_semaphore(host, host_vars)
@@ -1279,7 +1317,6 @@ async def main():
     await run_update_link_script(config)
 
     logger.info("All tasks completed.")
-
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 7):
