@@ -1,0 +1,88 @@
+---
+# roles/configure/tasks/mount_point.yml
+
+- name: Gather information about RAID configuration
+  block:
+    - name: Check the amounts of VDs created
+      become: true
+      ansible.builtin.command: "graidctl ls vd --format=json"
+      register: graidctl_ls_vd_output
+      changed_when: false
+
+    - name: Parse VD output
+      ansible.builtin.set_fact:
+        vd_list: "{{ graidctl_ls_vd_output.stdout | from_json }}"
+      changed_when: false
+
+    - name: Get device path for each VD
+      ansible.builtin.set_fact:
+        dev_path: "{{ vd_list.Result[0].DevPath }}"
+      when: vd_list.Result | length > 0
+      changed_when: false
+
+    - name: check if vd is mounted
+      become: true
+      ansible.builtin.shell: "mount | grep {{ dev_path }}"
+      register: mount_output
+      changed_when: false
+      ignore_errors: true
+
+    - name: Warning if vd is mounted
+      ansible.builtin.debug:
+        msg: "VD {{ dev_path }} is mounted"
+      when: mount_output.rc == 0
+      changed_when: false
+
+- name: Set mount point
+  become: true
+  when:
+    - configure_mount_point.set_mount_point | default(false)  | bool
+  block:
+    # - name: Create mount point directory if it doesn't exist
+    #   ansible.builtin.file:
+    #     path: "{{ configure_mount_point.mount_point }}"
+    #     state: directory
+    #     mode: "0755"
+    #   become: true
+
+    - name: Format the device with specified filesystem
+      ansible.builtin.filesystem:
+        fstype: "{{ configure_mount_point.filesystem }}"
+        dev: "{{ dev_path }}"
+      when:
+        - mount_output.rc != 0
+
+    - name: Combine mount options
+      ansible.builtin.set_fact:
+        combined_mount_options: "{{ configure_mount_point.options.systemd }},{{ configure_mount_point.options.extra }},{{ configure_mount_point.options.basic }}"
+
+    - name: Get UUID of the device
+      ansible.builtin.command: blkid -s UUID -o value {{ dev_path }}
+      register: device_uuid
+      changed_when: false
+      become: true
+
+    - name: Set UUID fact
+      ansible.builtin.set_fact:
+        device_uuid: "{{ device_uuid.stdout | trim }}"
+
+    - name: Mount the device
+      ansible.builtin.mount:
+        src: "UUID={{ device_uuid }}"
+        fstype: "{{ configure_mount_point.filesystem }}"
+        path: "{{ configure_mount_point.mount_point }}"
+        opts: "{{ combined_mount_options }}"
+        state: mounted
+        boot: true
+      when:
+        - mount_output.rc != 0
+
+    # - name: Update fstab if needed
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/fstab
+    #     line: "{{ dev_path }} {{ configure_mount_point.mount_point }} {{ configure_mount_point.filesystem }} {{ combined_mount_options }} 0 0"
+    #     create: true
+    #     mode: "0644"
+    #     append_if_no_match: true
+    #     become: true
+    #     when: configure_mount_point.set_fstab | default(false)

@@ -31,11 +31,21 @@ configure_pd:
   sorting: "Address"
 
 configure_raid:
-  type: "raid0"
-  vd_size: "100MB"
-  vd_counts: 5
+  type: "raid5"
+  vd_size: ""
+  vd_counts: 1
   delete: false
   dg_foreground_init: false
+
+configure_mount_point:
+  set_mount_point: true
+  set_fstab: true
+  filesystem: "xfs"
+  mount_point: "/mnt/graid"
+  options:
+    basic: "noatime,nodiratime"
+    systemd: "x-systemd.requires=graid.service"
+    extra: "nofail"
 
 configure_consistency_check:
   mode: false

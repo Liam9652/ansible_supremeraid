@@ -67,3 +67,14 @@
   when:
     - not configure_nvme_of.initiator | default(false)  | bool
     - configure_nvme_of.target | default(false)  | bool
+
+- name: Setup mount_point
+  ansible.builtin.include_tasks: mount_point.yml
+  args:
+    apply:
+      tags:
+        - mount_point
+  tags:
+    - mount_point
+  when:
+    - configure_mount_point.set_mount_point | default(false)  | bool
