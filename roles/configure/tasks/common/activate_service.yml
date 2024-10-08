@@ -84,13 +84,29 @@
   become: true
   notify: Restart graid-mgr service
 
+- name: Check if ufw is installed (Debian/Ubuntu)
+  ansible.builtin.command: which ufw
+  register: ufw_check
+  ignore_errors: true
+  changed_when: false
+  when: ansible_os_family == "Debian"
+
+- name: Check if firewalld is installed (RedHat/CentOS)
+  ansible.builtin.command: which firewall-cmd
+  register: firewalld_check
+  ignore_errors: true
+  changed_when: false
+  when: ansible_os_family == "RedHat"
+
 - name: Open firewall port for graid-mgr (Ubuntu)
   community.general.ufw:
     rule: allow
     port: "{{ general.graid_mgr_ports }}"
     proto: tcp
   become: true
-  when: ansible_facts['os_family'] == "Debian"
+  when:
+    - ansible_facts['os_family'] == "Debian"
+    - ufw_check.rc == 0
 
 - name: Open firewall port for graid-mgr (RHEL/CentOS)
   ansible.posix.firewalld:
@@ -101,4 +117,6 @@
   vars:
     ansible_python_interpreter: /usr/bin/python3
   become: true
-  when: ansible_facts['os_family'] == "RedHat"
+  when:
+    - ansible_facts['os_family'] == "RedHat"
+    - firewalld_check.rc == 0
