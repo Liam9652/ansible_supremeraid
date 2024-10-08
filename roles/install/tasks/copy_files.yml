@@ -25,9 +25,9 @@
     - "{{ linux.installer_urls }}"
   register: install_package_stats
 
-- name: Debug installer stats
-  debug:
-    var: install_package_stats
+# - name: Debug installer stats
+#   debug:
+#     var: install_package_stats
 
 - name: Start download packages
   delegate_to: localhost
@@ -55,9 +55,9 @@
   loop: "{{ download_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
   when: download_jobs.changed
 
-- name: Show download completion message
-  debug:
-    msg: "All downloads have completed."
+# - name: Show download completion message
+#   debug:
+#     msg: "All downloads have completed."
 
 - name: Copy installers to remote host
   become: true
