@@ -51,11 +51,11 @@
       tags:
         - always
 
-    - name: Display install mode
-      ansible.builtin.debug:
-        msg: "Install mode is {{ install_mode }}"
-      tags:
-        - always
+    # - name: Display install mode
+    #   ansible.builtin.debug:
+    #     msg: "Install mode is {{ install_mode }}"
+    #   tags:
+    #     - always
 
     # Disk space check in a block with rescue
     - name: Check disk space
