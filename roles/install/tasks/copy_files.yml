@@ -54,13 +54,25 @@
   delay: 10
   ignore_errors: true
   loop: "{{ download_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
-  when: download_jobs.results | selectattr('ansible_job_id', 'defined') | list | length > 0
+  when:
+    - ansible_os_family != "Windows"
+    - not item.stat.exists
+    - download_jobs.results | selectattr('ansible_job_id', 'defined') | list | length > 0
   loop_control:
     label: "{{ item.item.item | basename }}"
 
 # - name: Show download completion message
 #   debug:
 #     msg: "All downloads have completed."
+#
+#
+
+- name: Debug variables
+  ansible.builtin.debug:
+    msg:
+      - "item: {{ item | default('undefined') }}"
+      - "item.stat: {{ item.stat | default('undefined') }}"
+      - "download_jobs: {{ download_jobs | default('undefined') }}"
 
 - name: Copy installers to remote host
   become: true
@@ -69,6 +81,7 @@
     dest: "{{ setup.graid_path }}{{ item.item | basename }}"
     mode: "0755"
   loop: "{{ install_package_stats.results }}"
+  ignore_errors: true
   when:
     - ansible_os_family != "Windows"
     - item.stat.exists or
