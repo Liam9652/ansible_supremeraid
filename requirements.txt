@@ -1,10 +1,11 @@
 aiofiles
-aiohappyeyeballs
+aiohappyeyeball; python_version >= '3.8'
 aiohttp
 aiosignal
 ansible
 ansible-core
 async-timeout
+asynctest
 attrs
 bcrypt
 beautifulsoup4
@@ -13,18 +14,23 @@ certifi
 cffi
 charset-normalizer
 cryptography
+distlib
+filelock
 frozenlist
 idna
+idna-ssl
+importlib_resources
 Jinja2
 MarkupSafe
 multidict
 packaging
 paramiko
 pexpect
-pkg_resources
+platformdirs
 ptyprocess
 pycparser
 PyNaCl
+pyparsing
 PyYAML
 requests
 resolvelib
@@ -35,3 +41,4 @@ tqdm
 typing_extensions
 urllib3
 yarl
+zipp
