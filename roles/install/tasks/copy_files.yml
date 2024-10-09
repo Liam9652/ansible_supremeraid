@@ -52,8 +52,11 @@
   until: job_result.finished
   retries: 360
   delay: 10
+  ignore_errors: true
   loop: "{{ download_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
-  when: download_jobs.changed
+  when: download_jobs.results | selectattr('ansible_job_id', 'defined') | list | length > 0
+  loop_control:
+    label: "{{ item.item.item | basename }}"
 
 # - name: Show download completion message
 #   debug:
@@ -68,7 +71,15 @@
   loop: "{{ install_package_stats.results }}"
   when:
     - ansible_os_family != "Windows"
-    - item.stat.exists or (download_jobs.changed and item.item | basename in (download_jobs.results | selectattr('changed', 'defined') | map(attribute='dest') | map('basename') | list))
+    - item.stat.exists or
+      (download_jobs.changed | default(false) and
+      item.item | basename in
+      (download_jobs.results |
+      selectattr('changed', 'defined') |
+      selectattr('item', 'defined') |
+      map(attribute='item.item') |
+      map('basename') |
+      list))
 
 - name: Download nv dirver to control node
   become: false
