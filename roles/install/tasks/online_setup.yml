@@ -86,7 +86,9 @@
     - name: Monitor pre-installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-preinstaller/preinstaller.log
-        search_regex: "\\[INFO\\] Selected 'Yes' for reboot system.|\\[ERROR\\]"
+        search_regex: >-
+          (\\[INFO\\]\\s*Selected 'Yes' for reboot system\\.|
+          \\[ERROR\\].*)
         timeout: "{{ general.timeout | int / 10 | int }}"
       register: log_content
       become: true

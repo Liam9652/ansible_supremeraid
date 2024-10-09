@@ -99,16 +99,14 @@
     - name: Monitor installer log file
       ansible.builtin.wait_for:
         path: /var/log/graid-installer/installer.log
-        search_regex: >-
-          (\\[INFO\\] Asking reboot\\?)|
-          (\\[INFO\\]\\s*The installation was successful\\.)
-        timeout: "{{ general.timeout | int / 10 }}" # 180 * 10 seconds = 1800 seconds = 30 minutes
+        search_regex: '(\\[INFO\\] Asking reboot\\?)|(The installation was successful)'
+        timeout: "{{ general.timeout | int  }}"
+        sleep: 5
       register: log_content
       become: true
       retries: 180
       delay: 10
       ignore_unreachable: true
-      until: log_content is succeeded
 
     - name: Clear host errors
       ansible.builtin.meta: clear_host_errors
