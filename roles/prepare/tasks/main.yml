@@ -1,5 +1,14 @@
 ---
 # tasks file for prepare
+- name: Update_check
+  ansible.builtin.include_tasks: upgrade_check.yml
+  args:
+    apply:
+      tags:
+        - upgrade
+  tags:
+    - upgrade
+
 - name: Identify system
   ansible.builtin.include_tasks: identify_system.yml
   args:
