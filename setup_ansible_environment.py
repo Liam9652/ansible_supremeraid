@@ -212,7 +212,7 @@ async def check_command_exists(command):
         return False
 
 
-async def transfer_files(source_files, destination, host_vars, use_scp=False, password=None, scp_options=None, sshpass_available=False):
+async def transfer_files(source_files, destination, host_vars, use_scp=False, password=None, scp_options=None, sshpass_available=False, retries=3):
     """
     Transfer files to a remote host using either scp or rsync.
 
@@ -229,6 +229,7 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
         password (str, optional): The password for the host. Defaults to None.
         scp_options (list, optional): The options to pass to the scp command. Defaults to None.
         sshpass_available (bool, optional): Whether sshpass is available. Defaults to False.
+        retries (int, optional): Number of retries for file transfer in case of failure. Defaults to 3.
 
     Returns:
         str: The stdout of the command.
@@ -236,54 +237,66 @@ async def transfer_files(source_files, destination, host_vars, use_scp=False, pa
     user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
     port = host_vars.get('ansible_port', '22')
     host, remote_path = destination.split(':', 1)
-    if not await ensure_remote_directory(host, host_vars, remote_path, password, sshpass_available):
-        raise Exception(
-            f"Failed to create remote directory {remote_path} on {user}@{host}:{port}")
 
-    for source_file in source_files:
-        if not os.path.exists(source_file):
-            logger.error(
-                f"Source file not found: {source_file} on {user}@{host}:{port}")
-            raise FileNotFoundError(f"Source file not found: {source_file}")
-
-    if sshpass_available:
-        # use scp to transfer files
-        if use_scp or not shutil.which('rsync'):
-            base_command = ['scp', '-r', '-v', '-P', port]
-            if scp_options:
-                base_command.extend(scp_options)
-            if password:
-                base_command = ['sshpass', '-p', password] + base_command
-            command = base_command + source_files + \
-                [f"{user}@{host}:{remote_path}"]
-        else:
-            command = ['rsync', '-avz', '--progress', f'-e ssh -p {port}'] + \
-                source_files + [f"{user}@{host}:{remote_path}"]
-            if password:
-                command = ['sshpass', '-p', password] + command
-
-        stdout, stderr, returncode = await run_command(command, check=False)
-        if returncode != 0:
-            logger.error(f"File transfer failed. Stdout: {stdout}")
-            logger.error(f"File transfer failed. Stderr: {stderr}")
-            raise subprocess.CalledProcessError(returncode, command, stderr)
-    else:
-        # use paramiko to transfer files
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    for attempt in range(retries):
         try:
-            ssh.connect(host, port=int(port), username=user, password=password)
-            with ssh.open_sftp() as sftp:
-                for source_file in source_files:
-                    remote_file = os.path.join(
-                        remote_path, os.path.basename(source_file))
-                    sftp.put(source_file, remote_file)
-            stdout = "Files transferred successfully using paramiko."
+
+            if not await ensure_remote_directory(host, host_vars, remote_path, password, sshpass_available):
+                raise Exception(
+                    f"Failed to create remote directory {remote_path} on {user}@{host}:{port}")
+
+            for source_file in source_files:
+                if not os.path.exists(source_file):
+                    logger.error(
+                        f"Source file not found: {source_file} on {user}@{host}:{port}")
+                    raise FileNotFoundError(
+                        f"Source file not found: {source_file}")
+
+            if sshpass_available:
+                # use scp to transfer files
+                if use_scp or not shutil.which('rsync'):
+                    base_command = ['scp', '-r', '-v', '-P', port]
+                    if scp_options:
+                        base_command.extend(scp_options)
+                    if password:
+                        base_command = ['sshpass', '-p',
+                                        password] + base_command
+                    command = base_command + source_files + \
+                        [f"{user}@{host}:{remote_path}"]
+                else:
+                    command = ['rsync', '-avz', '--progress', f'-e ssh -p {port}'] + \
+                        source_files + [f"{user}@{host}:{remote_path}"]
+                    if password:
+                        command = ['sshpass', '-p', password] + command
+
+                stdout, stderr, returncode = await run_command(command, check=False)
+                if returncode != 0:
+                    logger.error(f"File transfer failed. Stdout: {stdout}")
+                    logger.error(f"File transfer failed. Stderr: {stderr}")
+                    raise subprocess.CalledProcessError(
+                        returncode, command, stderr)
+            else:
+                # use paramiko to transfer files
+                ssh = paramiko.SSHClient()
+                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                try:
+                    ssh.connect(host, port=int(port),
+                                username=user, password=password)
+                    with ssh.open_sftp() as sftp:
+                        for source_file in source_files:
+                            remote_file = os.path.join(
+                                remote_path, os.path.basename(source_file))
+                            sftp.put(source_file, remote_file)
+                    stdout = "Files transferred successfully using paramiko."
+                except Exception as e:
+                    raise Exception(
+                        f"Failed to transfer files using paramiko: {str(e)}")
+                finally:
+                    ssh.close()
         except Exception as e:
-            raise Exception(
-                f"Failed to transfer files using paramiko: {str(e)}")
-        finally:
-            ssh.close()
+            logger.error(f"Attempt {attempt + 1}/{retries} failed: {str(e)}")
+            if attempt + 1 < retries:
+                raise e
 
     return stdout
 
@@ -330,7 +343,25 @@ async def retry_with_scp(func, *args, **kwargs):
                 raise
 
 
-async def ensure_remote_directory(host, host_vars, remote_path, password=None, sshpass_available=False):
+async def ensure_remote_directory(host, host_vars, remote_path, password=None, sshpass_available=False, cache=set()):
+    """
+    Ensure that the remote directory exists and is writable. The function will cache the created directories to avoid
+    repeating the check unnecessarily.
+
+    Args:
+        host (str): The remote host.
+        host_vars (dict): The host variables, including the username and port.
+        remote_path (str): The remote directory path to ensure.
+        password (str, optional): The password for the host. Defaults to None.
+        sshpass_available (bool, optional): Whether sshpass is available. Defaults to False.
+        cache (set, optional): Cache to track directories that have been ensured. Defaults to an empty set.
+
+    Returns:
+        bool: True if the directory exists or was created successfully, False otherwise.
+    """
+    if (host, remote_path) in cache:
+        return True
+
     user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
     port = host_vars.get('ansible_port', '22')
 
@@ -413,6 +444,8 @@ async def ensure_remote_directory(host, host_vars, remote_path, password=None, s
             return False
         finally:
             ssh.close()
+
+    cache.add((host, remote_path))
 
     return True
 
@@ -698,7 +731,7 @@ async def create_remote_setup_script(config, graid_path, user):
     # Install Miniconda if it's not already installed
     if ! command -v conda &> /dev/null; then
         echo "Conda not found, installing Miniconda"
-        bash {graid_path}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -p {graid_path}/miniconda
+        bash {graid_path}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -u -p {graid_path}/miniconda
         # Initialize conda for bash and zsh
         {graid_path}/miniconda/bin/conda init bash
         {graid_path}/miniconda/bin/conda init zsh
@@ -734,6 +767,7 @@ async def create_remote_setup_script(config, graid_path, user):
     echo "Remote setup completed successfully"
     echo "{graid_path}/run_in_graid_env.sh"
     exit 0
+    echo "Final exit status: $?"
     """)
     local_graid_path = Path(SCRIPT_DIR) / 'temp_scripts'
     local_graid_path.mkdir(parents=True, exist_ok=True)
@@ -769,6 +803,8 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
             "{{ ansible_env.HOME }}", f"/home/{user}"))
     logger.info(f"Setting up {user}@{host}:{port}...")
     logger.info(f"Using graid_path: {graid_path}")
+    max_retries = 3
+    retry_delay = 10
 
     # Check if the host is reachable
     if not await check_network(host, host_vars, config):
@@ -815,31 +851,57 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
                 scp_options=SSH_OPTIONS,
                 sshpass_available=sshpass_available
             )
-            ssh_command = f"bash -x {graid_path}/remote_setup.sh"
-            if sshpass_available and password and not use_keyless:
-                ssh_command = ['sshpass', '-p', password, 'ssh', '-p', port] + \
-                    SSH_OPTIONS + [f"{user}@{host}", ssh_command]
-            else:
-                ssh_command = ['ssh', '-p', port] + SSH_OPTIONS + \
-                    [f"{user}@{host}", ssh_command]
-            if isinstance(ssh_command, list):
-                ssh_command = ' '.join(ssh_command)
 
-            if sshpass_available or use_keyless:
-                stdout, stderr, returncode = await run_command(ssh_command, shell=True)
-            else:
-                stdout, stderr, returncode = await ssh_connect(host, user, password, ssh_command)
-
-            if returncode != 0:
+            try:
+                await transfer_files([str(installer_path), str(remote_setup_path)], f"{host}:{graid_path}/", host_vars, use_scp=True, password=password, sshpass_available=sshpass_available)
+            except Exception as e:
                 logger.error(
-                    f"Remote setup script execution failed on {user}@{host}:{port}")
-                logger.error(f"Exit code: {returncode}")
-                logger.error(f"STDOUT: {stdout}")
-                logger.error(f"STDERR: {stderr}")
+                    f"File transfer verification failed for {user}@{host}:{port}: {str(e)}")
                 return False
+            for attempt in range(max_retries):
+                try:
+                    ssh_command = f"bash -x {graid_path}/remote_setup.sh"
+                    if sshpass_available and password and not use_keyless:
+                        ssh_command = ['sshpass', '-p', password, 'ssh', '-p', port] + \
+                            SSH_OPTIONS + [f"{user}@{host}", ssh_command]
+                    else:
+                        ssh_command = ['ssh', '-p', port] + SSH_OPTIONS + \
+                            [f"{user}@{host}", ssh_command]
+                    if isinstance(ssh_command, list):
+                        ssh_command = ' '.join(ssh_command)
+
+                    if sshpass_available or use_keyless:
+                        stdout, stderr, returncode = await run_command(ssh_command, shell=True)
+                    else:
+                        stdout, stderr, returncode = await ssh_connect(host, user, password, ssh_command)
+
+                    if returncode != 0:
+                        logger.error(
+                            f"Remote setup script execution failed on {user}@{host}:{port}")
+                        logger.error(f"Exit code: {returncode}")
+                        logger.error(f"STDOUT: {stdout}")
+                        logger.error(f"STDERR: {stderr}")
+                        return False
+                    else:
+                        logger.info(
+                            f"Remote setup script execution successful on {user}@{host}:{port}")
+                except Exception as e:
+                    logger.warning(
+                        f" Attempt {attempt + 1}/{max_retries} failed for {user}@{host}:{port}: {str(e)}"
+                    )
+                    if attempt < max_retries - 1:
+                        logger.info(
+                            f"{retry_delay} seconds before next attempt for {user}@{host}:{port}")
+                        await asyncio.sleep(retry_delay)
+
+                    else:
+                        logger.error(
+                            f"Failed to connect to {user}@{host}:{port} after {max_retries} attempts")
+                        raise
 
             remote_python_path = graid_path / "miniconda" / \
                 "envs" / config['conda_env_name'] / "bin" / "python"
+
             logger.info(
                 f"Python interpreter path on {host}: {remote_python_path}")
 
@@ -855,7 +917,8 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
         return False
     except Exception as e:
         logger.error(
-            f"Unexpected error during setup for {user}@{host}:{port}: {str(e)}")
+            f"Unexpected error during setup for {user}@{host}:{port}: {str(e)}, STDERR: {stderr}, STDOUT: {stdout}")
+
         return False
     # try:
 
