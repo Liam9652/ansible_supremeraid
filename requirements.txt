@@ -1,5 +1,5 @@
 aiofiles
-aiohappyeyeball; python_version >= '3.8'
+aiohappyeyeballs; python_version >= '3.8'
 aiohttp
 aiosignal
 ansible
