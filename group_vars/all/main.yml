@@ -38,7 +38,7 @@ configure_raid:
   dg_foreground_init: false
 
 configure_mount_point:
-  set_mount_point: true
+  set_mount_point: false
   set_fstab: true
   filesystem: "xfs"
   mount_point: "/mnt/graid"
