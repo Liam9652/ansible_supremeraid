@@ -698,7 +698,7 @@ def release_lock(lock_file, lockf):
         pass
 
 
-async def create_remote_setup_script(config, graid_path, user):
+async def create_remote_setup_script(config, graid_path_remote, user):
     """
     Creates a remote setup script on the target host.
 
@@ -710,11 +710,15 @@ async def create_remote_setup_script(config, graid_path, user):
 
     Args:
         config (dict): The configuration dictionary.
-        graid_path (Path): The path to the Graid environment.
+        graid_path_remote (Path): The path to the Graid environment on the remote host.
+        user (str): The username for the current host.
 
     Returns:
         Path: The path to the remote setup script.
     """
+    
+    logger.info(f"Creating remote setup script for user {user} at {graid_path_remote}")
+    
     remote_setup_script = textwrap.dedent(f"""\
     #!/usr/bin/env bash
     set -e
@@ -722,21 +726,21 @@ async def create_remote_setup_script(config, graid_path, user):
     trap 'echo "Error occurred at line $LINENO"; exit 1' ERR
     
     # Create the Graid directory if it doesn't exist
-    echo "Starting remote setup script"
+    echo "Starting remote setup script for user {user}"
     echo "Current directory: $(pwd)"
-    echo "Graid path: {graid_path}"
-    mkdir -p {graid_path}
+    echo "Graid path: {graid_path_remote}"
+    mkdir -p {graid_path_remote}
     echo "Graid directory created/verified"
 
     # Install Miniconda if it's not already installed
     if ! command -v conda &> /dev/null; then
         echo "Conda not found, installing Miniconda"
-        bash {graid_path}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -u -p {graid_path}/miniconda
+        bash {graid_path_remote}/Miniconda3-{config['miniconda_version']}-Linux-x86_64.sh -b -u -p {graid_path_remote}/miniconda
         # Initialize conda for bash and zsh
-        {graid_path}/miniconda/bin/conda init bash
-        {graid_path}/miniconda/bin/conda init zsh
+        {graid_path_remote}/miniconda/bin/conda init bash
+        {graid_path_remote}/miniconda/bin/conda init zsh
         # Add the conda bin directory to the PATH
-        export PATH="{graid_path}/miniconda/bin:$PATH"
+        export PATH="{graid_path_remote}/miniconda/bin:$PATH"
     else
         echo "Conda already installed"
     fi
@@ -755,28 +759,27 @@ async def create_remote_setup_script(config, graid_path, user):
 
     # Create a script to run commands in the Graid environment
     echo "Creating run_in_graid_env.sh script"
-    cat << EOT > {graid_path}/run_in_graid_env.sh
+    cat << EOT > {graid_path_remote}/run_in_graid_env.sh
     #!/bin/bash
     # Activate the conda environment
-    source {graid_path}/miniconda/bin/activate {config['conda_env_name']}
+    source {graid_path_remote}/miniconda/bin/activate {config['conda_env_name']}
     # Verify that the environment is activated
     python --version
     EOT
-    chmod +x {graid_path}/run_in_graid_env.sh
+    chmod +x {graid_path_remote}/run_in_graid_env.sh
 
-    echo "Remote setup completed successfully"
-    echo "{graid_path}/run_in_graid_env.sh"
+    echo "Remote setup completed successfully for user {user}"
+    echo "{graid_path_remote}/run_in_graid_env.sh"
     exit 0
     echo "Final exit status: $?"
     """)
     local_graid_path = Path(SCRIPT_DIR) / 'temp_scripts'
     local_graid_path.mkdir(parents=True, exist_ok=True)
 
-    remote_setup_path = local_graid_path / 'remote_setup.sh'
+    remote_setup_path = local_graid_path / f'remote_setup_{user}.sh'
     async with aiofiles.open(remote_setup_path, 'w') as f:
         await f.write(remote_setup_script)
     return remote_setup_path
-
 
 async def setup_remote_host(host, host_vars, config, installer_path, remote_setup_path, password=None, use_keyless=False, sshpass_available=False):
     """
@@ -786,6 +789,8 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
         host (str): The hostname of the host to set up.
         host_vars (dict): The host variables for the host.
         config (dict): The configuration dictionary.
+        installer_path (Path): The path to the Miniconda installer.
+        remote_setup_path (Path): The path to the remote setup script.
         password (str, optional): The password for the host. Defaults to None.
         use_keyless (bool, optional): Whether to use keyless SSH. Defaults to False.
         sshpass_available (bool, optional): Whether sshpass is available. Defaults to False.
@@ -817,7 +822,7 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
                 f"Failed to create remote directory {graid_path} on {user}@{host}:{port}")
 
         if host in ('localhost', '127.0.0.1'):
-            remote_setup_script = graid_path / 'remote_setup.sh'
+            remote_setup_script = graid_path / f'remote_setup_{user}.sh'
             if not remote_setup_script.exists():
                 logger.error(
                     f"Remote setup script not found at {remote_setup_script}")
@@ -858,9 +863,11 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
                 logger.error(
                     f"File transfer verification failed for {user}@{host}:{port}: {str(e)}")
                 return False
+            
             for attempt in range(max_retries):
                 try:
-                    ssh_command = f"bash -x {graid_path}/remote_setup.sh"
+                    
+                    ssh_command = f"bash -x {graid_path}/remote_setup_{user}.sh"
                     if sshpass_available and password and not use_keyless:
                         ssh_command = ['sshpass', '-p', password, 'ssh', '-p', port] + \
                             SSH_OPTIONS + [f"{user}@{host}", ssh_command]
@@ -917,8 +924,7 @@ async def setup_remote_host(host, host_vars, config, installer_path, remote_setu
         return False
     except Exception as e:
         logger.error(
-            f"Unexpected error during setup for {user}@{host}:{port}: {str(e)}, STDERR: {stderr}, STDOUT: {stdout}")
-
+            f"Unexpected error during setup for {user}@{host}:{port}: {str(e)}")
         return False
     # try:
 
@@ -1279,6 +1285,52 @@ async def check_ssh_key():
         # If the key exists, just log a message
         logger.info("Existing SSH key found.")
 
+def cleanup_directories(base_dir, dir_names):
+    """
+    cleanup_directories
+
+    Args:
+        base_dir (Path): base_dir。
+        dir_names (list[str]): target directory。
+
+    Returns:
+        dict: result dictionary
+    """
+    results = {}
+    base_dir = Path(base_dir)
+    for dir_name in dir_names:
+        directory = base_dir / dir_name
+        if not directory.exists():
+            logging.info(f"Directory {directory} does not exist, skipping.")
+            results[dir_name] = None  # use None to indicate that the directory does not exist
+            continue
+        
+        if not directory.is_dir():
+            logging.error(f"{directory} is not a directory, skipping.")
+            results[dir_name] = False
+            continue
+
+        try:
+            file_count = 0
+            for item in directory.iterdir():
+                if item.is_file():
+                    item.unlink()
+                    file_count += 1
+                elif item.is_dir():
+                    for sub_item in item.rglob("*"):
+                        if sub_item.is_file():
+                            sub_item.unlink()
+                            file_count += 1
+                    item.rmdir()  # delete the empty directory
+
+            logging.info(f"Successfully removed {file_count} files/subdirectories in {directory}")
+            results[dir_name] = True
+        except Exception as e:
+            logging.error(f"Error occurred while cleaning {directory}: {e}")
+            results[dir_name] = False
+
+    return results
+
 
 async def main():
     """
@@ -1351,6 +1403,7 @@ async def main():
     remote_setup_scripts = {}
     for host, host_vars in hosts:
         user = host_vars.get('_user', host_vars.get('ansible_user', 'root'))
+        
         if user == 'root':
             graid_path = Path(config['graid_path'].replace(
                 "{{ ansible_env.HOME }}", "/root"))
@@ -1370,10 +1423,16 @@ async def main():
 
     graid_path = Path(config['graid_path'].replace(
         "{{ ansible_env.HOME }}", os.environ.get('HOME', '')))
-    try:
-        (graid_path / 'remote_setup.sh').unlink()
-    except OSError:
-        logger.warning("Failed to remove local temporary file")
+
+    directories_to_clean = ['temp_scripts', 'graid_packages']
+    cleanup_results = cleanup_directories(SCRIPT_DIR, directories_to_clean)
+    for dir_name, result in cleanup_results.items():
+        if result is None:
+            logger.warning(f"{dir_name} does not exist")
+        elif result:
+            logger.info(f"{dir_name} was cleaned successfully")
+        else:
+            logger(f"Failed to clean {dir_name}")
 
     logger.info("Setup complete for all hosts.")
     logger.info("Updating driver link...")
