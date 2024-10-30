@@ -9,8 +9,9 @@ general:
 
 # Setup configuration
 setup:
-  metadata_file: "https://download.graidtech.com/misc/tools/tmp/metadata_graid_urls.json"
+  metadata_file: "https://download.graidtech.com/misc/tools/urls_link/metadata_graid_urls.json"
   graid_path: "{{ ansible_env.HOME }}/graid_package/"
+  local_path: "./graid_package/"
   install_mode: "offline"
   remote_os: "linux"
   miniconda_version: "latest"
