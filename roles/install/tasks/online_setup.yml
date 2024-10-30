@@ -51,6 +51,50 @@
   ansible.builtin.debug:
     msg: "Installation type determined: {{ installation_type }}"
 
+- name: Check if reboot is needed after upgrade
+  become: true
+  block:
+    - name: Check if a reboot is needed after upgrade(Debian/Ubuntu)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      when: ansible_os_family == "Debian"
+
+    - name: Reboot the Debian or Ubuntu server
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible due to kernel updates"
+        connect_timeout: 5
+        reboot_timeout: "{{ general.timeout | int * 3 }}"
+        pre_reboot_delay: 5
+        post_reboot_delay: 30
+        test_command: uptime
+      ignore_errors: true
+      when:
+        - reboot_required_file is defined
+        - reboot_required_file.stat.exists
+        - ansible_os_family == "Debian"
+
+    - name: Check if a reboot is needed after upgrade(RHEL/CentOS/SUSE)
+      ansible.builtin.command: needs-restarting -r
+      register: needs_restarting_result
+      changed_when: false
+      failed_when: false
+      when: ansible_os_family == "RedHat" or ansible_os_family == "SUSE"
+
+    - name: Reboot the Red Hat or CentOS or SUSE server
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible due to kernel updates"
+        connect_timeout: 5
+        reboot_timeout: "{{ general.timeout | int * 3 }}"
+        pre_reboot_delay: 5
+        post_reboot_delay: 30
+        test_command: uptime
+      ignore_errors: true
+      when:
+        - needs_restarting_result is defined
+        - "'Reboot is required' in needs_restarting_result.stdout"
+        - ansible_os_family == "RedHat" or ansible_os_family == "SUSE"
+
 - name: Run SupremeRAID pre-installer in online mode if needed
   when: installation_type_int | int in [0, 1]
   become: true
@@ -88,7 +132,8 @@
         path: /var/log/graid-preinstaller/preinstaller.log
         search_regex: >-
           (\\[INFO\\]\\s*Selected 'Yes' for reboot system\\.|
-          \\[ERROR\\].*)
+          \\[ERROR\\].*|
+          Please reboot and run this script again.)
         timeout: "{{ general.timeout | int / 10 | int }}"
       register: log_content
       become: true
