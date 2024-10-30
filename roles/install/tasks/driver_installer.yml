@@ -58,6 +58,7 @@
   when: >
     installation_type == "unknown" or
     installation_type | int != 0 or
+    installation_type is not defined or
     driver_conf_stats.stat.exists is not defined or
     ansible_conf_stats.stat.exists is not defined or
     not driver_conf_stats.stat.exists or
@@ -66,8 +67,12 @@
   block:
     - name: Check if the old_installation-installer log file exists
       ansible.builtin.stat:
-        path: "/var/log/graid-installer/installer.log "
+        path: "/var/log/graid-installer/installer.log"
       register: installer_log_stats
+
+    - name: Debug installer log stats
+      ansible.builtin.debug:
+        msg: "Installer log stats: {{ installer_log_stats }}"
 
     - name: Remove and backup the old_installation log
       ansible.builtin.copy:
