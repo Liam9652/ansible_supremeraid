@@ -6,7 +6,7 @@
     - upgrade
   block:
     - name: Update apt
-      ansible.builtin.shell: apt-get update -y ; apt-get upgrade -y
+      ansible.builtin.shell: apt update -y ; apt upgrade -y
 
     - name: Check if a reboot is needed after upgrade
       ansible.builtin.stat:
@@ -17,25 +17,32 @@
       ansible.builtin.reboot:
         msg: "Reboot initiated by Ansible due to kernel updates"
         connect_timeout: 5
-        reboot_timeout: 300
-        pre_reboot_delay: 0
+        reboot_timeout: "{{ general.timeout | int * 3 }}"
+        pre_reboot_delay: 5
         post_reboot_delay: 30
         test_command: uptime
       when: reboot_required_file.stat.exists
 
-- name: Update yum cache and upgrade packages (Red Hat/CentOS)
+- name: Update yum cache and upgrade packages (Red Hat/CentOS/SUSE)
   become: true
-  when: ansible_os_family == "RedHat"
+  when: ansible_os_family == "RedHat" or ansible_os_family == "SUSE"
   tags:
     - upgrade
   block:
     - name: Update yum cache
       ansible.builtin.command: yum update -y
       failed_when: false
+      when: ansible_os_family == "RedHat"
 
     - name: Install yum-utils
       ansible.builtin.command: yum install yum-utils -y
       failed_when: false
+      when: ansible_os_family == "RedHat"
+
+    - name: Update Zypper cache
+      ansible.builtin.command: zypper refresh; zypper update -y
+      failed_when: false
+      when: ansible_os_family == "Suse"
 
     - name: Check if a reboot is needed after upgrade
       ansible.builtin.command: needs-restarting -r
@@ -46,8 +53,8 @@
       ansible.builtin.reboot:
         msg: "Reboot initiated by Ansible due to kernel updates"
         connect_timeout: 5
-        reboot_timeout: 300
-        pre_reboot_delay: 0
+        reboot_timeout: "{{ general.timeout | int * 3 }}"
+        pre_reboot_delay: 5
         post_reboot_delay: 30
         test_command: uptime
       when: "'Reboot is required' in needs_restarting_result.stdout"

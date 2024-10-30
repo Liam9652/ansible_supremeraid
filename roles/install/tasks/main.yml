@@ -16,8 +16,10 @@
     apply:
       tags:
         - copy
+        - update
   tags:
     - copy
+    - update
   # when: install_mode == 'offline'
   when: general.copy_from_local
 
