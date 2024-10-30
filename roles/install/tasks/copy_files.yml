@@ -11,18 +11,21 @@
   delegate_to: localhost
   become: false
   ansible.builtin.file:
-    path: "{{ setup.graid_path }}"
+    path: "{{ setup.local_path }}"
     state: directory
     mode: "0755"
 
 - name: Check if installers exist on control node
   delegate_to: localhost
+  no_log: true
   ansible.builtin.stat:
-    path: "{{ setup.graid_path }}{{ item | basename }}"
-  with_flattened:
-    - "{{ linux.nv_url }}"
-    - "{{ linux.pre_installer_url }}"
-    - "{{ linux.installer_urls }}"
+    path: "{{ setup.local_path }}/{{ item | basename }}"
+  loop: >-
+    {{
+      ([linux.nv_url] | flatten) +
+      ([linux.pre_installer_url] | flatten) +
+      (linux.installer_urls | default([]) | flatten)
+    }}
   register: install_package_stats
 
 # - name: Debug installer stats
@@ -31,10 +34,11 @@
 
 - name: Start download packages
   delegate_to: localhost
+  no_log: true
   become: false
   ansible.builtin.get_url:
     url: "{{ item.item }}"
-    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
+    dest: "{{ setup.local_path }}/{{ item.item | basename }}"
     mode: "0755"
   async: 3600
   poll: 0
@@ -53,7 +57,12 @@
   retries: 360
   delay: 10
   ignore_errors: true
-  loop: "{{ download_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
+  loop: >-
+    {{ 
+      download_jobs.results | 
+      selectattr('ansible_job_id', 'defined') | 
+      list 
+    }}
   when:
     - ansible_os_family != "Windows"
     - not item.stat.exists
@@ -61,45 +70,88 @@
   loop_control:
     label: "{{ item.item.item | basename }}"
 
+- name: Verify all installers after download
+  delegate_to: localhost
+  block:
+    - name: Get files stats after download
+      ansible.builtin.stat:
+        path: "{{ setup.local_path }}/{{ item | basename }}"
+      loop: >-
+        {{
+          ([linux.nv_url] | flatten) +
+          ([linux.pre_installer_url] | flatten) +
+          (linux.installer_urls | default([]) | flatten)
+        }}
+      register: install_package_stats
+
+    - name: Verify downloaded files
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.size > 0
+        fail_msg: "File {{ item.item | basename }} is missing or incomplete"
+        success_msg: "File {{ item.item | basename }} exists and appears complete"
+      loop: "{{ install_package_stats.results }}"
+      register: file_checks
+
+  rescue:
+    - name: List missing or incomplete files
+      ansible.builtin.debug:
+        msg:
+          - "Missing or incomplete file: {{ item.item | basename }}"
+      loop: >-
+        {{
+          install_package_stats.results |
+          selectattr('failed', 'defined') |
+          selectattr('failed') |
+          list
+        }}
+    - name: Fail if any installer file is missing or incomplete
+      ansible.builtin.fail:
+        msg: "Stopping Ansible execution due to missing or incomplete files"
+
 # - name: Show download completion message
 #   debug:
 #     msg: "All downloads have completed."
 #
 #
 
-- name: Debug variables
-  ansible.builtin.debug:
-    msg:
-      - "item: {{ item | default('undefined') }}"
-      - "item.stat: {{ item.stat | default('undefined') }}"
-      - "download_jobs: {{ download_jobs | default('undefined') }}"
+# - name: Debug variables
+#   ansible.builtin.debug:
+#     msg:
+#       - "item: {{ item | default('undefined') }}"
+#       - "item.stat: {{ item.stat | default('undefined') }}"
+#       - "download_jobs: {{ download_jobs | default('undefined') }}"
 
 - name: Copy installers to remote host
   become: true
+  no_log: true
   ansible.builtin.copy:
-    src: "{{ setup.graid_path }}{{ item.item | basename }}"
-    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
+    src: "{{ setup.local_path }}/{{ item.item | basename }}"
+    dest: "{{ setup.graid_path }}/{{ item.item | basename }}"
     mode: "0755"
   loop: "{{ install_package_stats.results }}"
   ignore_errors: true
   when:
     - ansible_os_family != "Windows"
-    - item.stat.exists or
-      (download_jobs.changed | default(false) and
-      item.item | basename in
-      (download_jobs.results |
-      selectattr('changed', 'defined') |
-      selectattr('item', 'defined') |
-      map(attribute='item.item') |
-      map('basename') |
-      list))
+    - item.stat.exists
+    - item.stat.size > 0
+
+- name: Debug file paths
+  ansible.builtin.debug:
+    msg:
+      - "Local path: {{ setup.local_path }}"
+      - "Graid path: {{ setup.graid_path }}"
+      - "File being checked: {{ item.item | basename }}"
+  loop: "{{ install_package_stats.results }}"
+  when: not item.stat.exists or item.stat.size == 0
 
 - name: Download nv dirver to control node
   become: false
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.nv_url }}"
-    dest: "{{ setup.graid_path }}{{ windows.nv_url | basename }}"
+    dest: "{{ setup.local_path }}{{ windows.nv_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family == "Windows"
@@ -109,7 +161,7 @@
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ windows.installation_script_url }}"
-    dest: "{{ setup.graid_path }}{{ windows.installation_script_url | basename }}"
+    dest: "{{ setup.local_path }}{{ windows.installation_script_url | basename }}"
     mode: "0755"
   when:
     - ansible_os_family == "Windows"
@@ -119,7 +171,7 @@
   delegate_to: localhost
   ansible.builtin.get_url:
     url: "{{ item.item }}"
-    dest: "{{ setup.graid_path }}{{ item.item | basename }}"
+    dest: "{{ setup.local_path }}{{ item.item | basename }}"
     mode: "0755"
   loop: "{{ windows.installer_win_urls }}"
   when:
@@ -128,7 +180,7 @@
 - name: Copy nv driver to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ setup.graid_path }}{{ windows.nv_url | basename }}"
+    src: "{{ setup.local_path }}{{ windows.nv_url | basename }}"
     dest: "C:\\Temp\\{{ windows.nv_url | basename }}"
   when:
     - ansible_os_family == "Windows"
@@ -136,7 +188,7 @@
 - name: Copy Installation script to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ setup.graid_path }}{{ windows.installation_script_url | basename }}"
+    src: "{{ setup.local_path }}{{ windows.installation_script_url | basename }}"
     dest: "C:\\Temp\\{{ windows.installation_script_url | basename }}"
   when:
     - ansible_os_family == "Windows"
@@ -144,7 +196,7 @@
 - name: Copy installers to remote host
   become: true
   ansible.windows.win_copy:
-    src: "{{ setup.graid_path }}{{ item | basename }}"
+    src: "{{ setup.local_path }}{{ item | basename }}"
     dest: "C:\\Temp\\{{ item | basename }}"
   loop: "{{ windows.installer_win_urls }}"
   when:
